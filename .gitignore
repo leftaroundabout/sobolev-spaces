@@ -1,0 +1,17 @@
+dist
+cabal-dev
+*.o
+*.hi
+*.chi
+*.chs.h
+.virthualenv
+*~
+bin/
+.stack-work
+*.kate-swp
+*.swp
+*.fuse_hidden*
+\#*
+*.lock
+.#*
+.ipynb_checkpoints

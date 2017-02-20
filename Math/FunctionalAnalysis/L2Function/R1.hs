@@ -9,11 +9,16 @@
 -- 
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE ConstraintKinds            #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE UnicodeSyntax              #-}
+{-# LANGUAGE FlexibleContexts           #-}
 
 module Math.FunctionalAnalysis.L2Function.R1 (
                          UnitL2(..)
                        , evalUnitL2
+                       , fromUniformSampled
                        , SampleMode(..)
+                       , SigSampleConfig(..)
             ) where
 
 import qualified Data.Map as Map
@@ -26,14 +31,11 @@ import qualified Numeric.FFT.Vector.Invertible as FFT
 
 import Data.Monoid ((<>))
 
-loResSampleCount :: Int
-loResSampleCount = 64
-
 subdivisionsSizeFactor :: Int
 subdivisionsSizeFactor = 8
 
 nSubDivs :: Int
-nSubDivs = 10
+nSubDivs = 9
 
 -- ℓ = 1/subdivisionsSizeFactor
 -- τ = 1/subdivFreq
@@ -53,7 +55,7 @@ type UABSample c = (Integral c, Bounded c, UArr.Storable c)
 --   on the unit interval. 
 data UnitL2 c s = UnitL2 {
     unitL2AmplitudeFactor :: !s
-  , unitL2MinimumSampleVal, unitL2MaximumSampleVal :: !c
+  , unitL2ExtremeSampleVals :: !(c,c)
   , unitL2LoFreqSamples :: UArr.Vector c
   , unitL2LoFreqSampleMode :: !SampleMode
   , unitL2Subdivisions :: BArr.Vector (UnitL2 c s)
@@ -90,25 +92,35 @@ lfCubicSplineEval ys
        n = Arr.length ys
        δx = 1 / fromIntegral (n+1)
 
+cubicResample :: Arr.Vector v Double => Int -> v Double -> v Double
+cubicResample n ys = Arr.generate n $ \i -> spline $ fromIntegral (i+1) / fromIntegral (n+1)
+ where spline = lfCubicSplineEval $ Arr.convert ys
+
 sineTrafo :: UArr.Vector Double -> UArr.Vector Double
-sineTrafo = prepareTrafos FFT.dst1
+sineTrafo = prepareTrafos FFT.dst1 (\n αs -> αs <> UArr.replicate (n - Arr.length αs) 0)
 
 invSineTrafo :: UArr.Vector Double -> UArr.Vector Double
-invSineTrafo = prepareTrafos FFT.idst1
+invSineTrafo = prepareTrafos FFT.idst1 cubicResample
 
-prepareTrafos :: (Num a, UArr.Storable a, UArr.Storable b) => FFT.Transform a b -> UArr.Vector a -> UArr.Vector b
-prepareTrafos transform = \αs
+prepareTrafos :: (UArr.Storable a, UArr.Storable b)
+                    => FFT.Transform a b
+                     -> (Int -> UArr.Vector a -> UArr.Vector a)
+                     -> UArr.Vector a -> UArr.Vector b
+prepareTrafos transform resize = \αs
    -> let nmin = Arr.length αs
       in case Map.lookupGT nmin plans of
           Just (n,plan) -> FFT.execute plan
                             $ if n > nmin
-                               then αs <> UArr.replicate (n - nmin) 0
+                               then resize n αs
                                else αs
  where plans = Map.fromList [ (n, FFT.plan transform n)
-                            | n <- [8,12,16,24,32,48,64,96,128,192,256] ]
+                            | p <- [3..10]
+                            , υ <- [0,1]
+                            , let n = 2^p + υ*2^(p-1) -- [8,12,16,24,32,48..]
+                            ]
 
 evalUnitL2 :: (Integral c, UArr.Storable c) => UnitL2 c Double -> Double -> Double
-evalUnitL2 (UnitL2 μ _ _ lf DiscreteSineTransform subdivs) = evalAt
+evalUnitL2 (UnitL2 μ _ lf DiscreteSineTransform subdivs) = evalAt
  where evalAt x
          | x < 0 || x > 1
                       = 0
@@ -127,4 +139,33 @@ evalUnitL2 (UnitL2 μ _ _ lf DiscreteSineTransform subdivs) = evalAt
               | otherwise          = const 0
        subdivEval = Arr.map evalUnitL2 subdivs
        nsd = Arr.length subdivs
+
+
+data SigSampleConfig = SigSampleConfig {
+      _maxFFTSize :: Int
+    , _infoPerStage :: Int
+    , _maxLocalInfo :: Int
+    , _longrangeBandwidth :: Double
+    }
+
+-- | A phase-constant second-order filter.
+simpleIIRLowpass :: Double              -- ^ Normalised cutoff frequency
+                 -> UArr.Vector Double
+                 -> UArr.Vector Double
+simpleIIRLowpass = undefined
+
+fromUniformSampled :: ∀ c . UABSample c
+        => SigSampleConfig
+        -> UArr.Vector Double -> UnitL2 c Double
+fromUniformSampled (SigSampleConfig nChunkMax infoPerStage localInfo lrBandwidth) ys
+  | Arr.length ys < localInfo
+  , transformed <- invSineTrafo ys
+  , maxPosAmplitude <- Arr.maximum transformed
+  , maxNegAmplitude <- Arr.minimum transformed
+  , μ <- maxAllowedVal / max maxPosAmplitude (-maxNegAmplitude)
+     = UnitL2 (recip μ) (round $ μ * maxNegAmplitude, round $ μ * maxPosAmplitude)
+              (Arr.map (round . (μ*)) transformed) DiscreteSineTransform
+              Arr.empty
+ where loRes = cubicResample nChunkMax $ simpleIIRLowpass lrBandwidth ys
+       maxAllowedVal = fromIntegral (maxBound :: c) / 8
 

@@ -8,6 +8,7 @@
 -- Portability : portable
 -- 
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE ConstraintKinds            #-}
 
 module Math.FunctionalAnalysis.L2Function.R1 (
                          UnitL2(..)
@@ -15,12 +16,15 @@ module Math.FunctionalAnalysis.L2Function.R1 (
                        , SampleMode(..)
             ) where
 
-import qualified Data.Vector.Unboxed as UArr
+import qualified Data.Map as Map
+import qualified Data.Vector.Storable as UArr
 import qualified Data.Vector as BArr
 import Data.Vector.Generic ((!))
 import qualified Data.Vector.Generic as Arr
+import qualified Numeric.FFT.Vector.Plan as FFT
 import qualified Numeric.FFT.Vector.Invertible as FFT
 
+import Data.Monoid ((<>))
 
 loResSampleCount :: Int
 loResSampleCount = 64
@@ -42,6 +46,8 @@ subdivsOverlap :: Double
 subdivsOverlap = 1 - fromIntegral subdivisionsSizeFactor / subdivFreq
 
 data SampleMode = DiscreteSineTransform
+
+type UABSample c = (Integral c, Bounded c, UArr.Storable c)
 
 -- | A square-integrable, bandlimited function with compact support
 --   on the unit interval. 
@@ -84,7 +90,24 @@ lfCubicSplineEval ys
        n = Arr.length ys
        δx = 1 / fromIntegral (n+1)
 
-evalUnitL2 :: (Integral c, UArr.Unbox c) => UnitL2 c Double -> Double -> Double
+sineTrafo :: UArr.Vector Double -> UArr.Vector Double
+sineTrafo = prepareTrafos FFT.dst1
+
+invSineTrafo :: UArr.Vector Double -> UArr.Vector Double
+invSineTrafo = prepareTrafos FFT.idst1
+
+prepareTrafos :: (Num a, UArr.Storable a, UArr.Storable b) => FFT.Transform a b -> UArr.Vector a -> UArr.Vector b
+prepareTrafos transform = \αs
+   -> let nmin = Arr.length αs
+      in case Map.lookupGT nmin plans of
+          Just (n,plan) -> FFT.execute plan
+                            $ if n > nmin
+                               then αs <> UArr.replicate (n - nmin) 0
+                               else αs
+ where plans = Map.fromList [ (n, FFT.plan transform n)
+                            | n <- [8,12,16,24,32,48,64,96,128,192,256] ]
+
+evalUnitL2 :: (Integral c, UArr.Storable c) => UnitL2 c Double -> Double -> Double
 evalUnitL2 (UnitL2 μ _ _ lf DiscreteSineTransform subdivs) = evalAt
  where evalAt x
          | x < 0 || x > 1
@@ -100,7 +123,7 @@ evalUnitL2 (UnitL2 μ _ _ lf DiscreteSineTransform subdivs) = evalAt
               xr = x - fromIntegral i / subdivFreq
               ξ = xr * fromIntegral subdivisionsSizeFactor
        lfEval | Arr.length lf > 0  = lfCubicSplineEval
-                  (FFT.run FFT.dst1 $ UArr.map ((*μ) . fromIntegral) lf)
+                  (sineTrafo $ UArr.map ((*μ) . fromIntegral) lf)
               | otherwise          = const 0
        subdivEval = Arr.map evalUnitL2 subdivs
        nsd = Arr.length subdivs

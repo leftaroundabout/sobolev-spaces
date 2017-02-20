@@ -10,14 +10,16 @@
 {-# LANGUAGE TypeFamilies               #-}
 
 module Math.FunctionalAnalysis.L2Function.R1 (
-                         UnitL2
+                         UnitL2(..)
+                       , evalUnitL2
+                       , SampleMode(..)
             ) where
 
 import qualified Data.Vector.Unboxed as UArr
 import qualified Data.Vector as BArr
 import Data.Vector.Generic ((!))
 import qualified Data.Vector.Generic as Arr
--- import Numeric.FFT.Vector.Invertible
+import qualified Numeric.FFT.Vector.Invertible as FFT
 
 
 loResSampleCount :: Int
@@ -29,7 +31,17 @@ subdivisionsSizeFactor = 8
 nSubDivs :: Int
 nSubDivs = 10
 
-data SampleMode = CubicInterpolation
+-- ℓ = 1/subdivisionsSizeFactor
+-- τ = 1/subdivFreq
+-- (𝑛−1) ⋅ τ + ℓ = 1
+-- τ = (1 − ℓ)/(𝑛 − 1)
+subdivFreq :: Double
+subdivFreq = (fromIntegral nSubDivs - 1) / (1 - 1/fromIntegral subdivisionsSizeFactor)
+
+subdivsOverlap :: Double
+subdivsOverlap = 1 - fromIntegral subdivisionsSizeFactor / subdivFreq
+
+data SampleMode = DiscreteSineTransform
 
 -- | A square-integrable, bandlimited function with compact support
 --   on the unit interval. 
@@ -43,9 +55,8 @@ data UnitL2 c s = UnitL2 {
 
 -- | Efficient only when partially applied to data array
 --   and then evaluated at multiple x-points 
-lfCubicSplineEval :: (Integral c, UArr.Unbox c)
-            => (Double, UArr.Vector c) -> Double -> Double
-lfCubicSplineEval (μ,ys)
+lfCubicSplineEval :: UArr.Vector Double -> Double -> Double
+lfCubicSplineEval ys
   | n > 1   = lcse
   | n < 1   = const 0
  where lcse x | i < 0      = 0
@@ -59,20 +70,38 @@ lfCubicSplineEval (μ,ys)
         where hx = x / δx
               i = floor hx
               ξ = hx - fromIntegral i
-              y₀ = μ * fromIntegral (ys!(i-1))
-              y₁ = μ * fromIntegral (ys!i)
-              ð₀ = μ/2 * δys!(i-1)
-              ð₁ = μ/2 * δys!i
+              y₀ = ys!(i-1)
+              y₁ = ys!i
+              ð₀ = 0.5 * δys!(i-1)
+              ð₁ = 0.5 * δys!i
        δys = UArr.imap (\i _
                   -> if i<1
-                      then fromIntegral (ys!1)
+                      then ys!1
                       else if i<n-1
-                            then fromIntegral (ys!(i+1)) - fromIntegral (ys!(i-1))
-                            else -fromIntegral (ys!(n-2))
+                            then ys!(i+1) - ys!(i-1)
+                            else -ys!(n-2)
               ) ys
        n = Arr.length ys
-       δx = 1 / fromIntegral loResSampleCount
+       δx = 1 / fromIntegral (n+1)
 
-evalUnitL2 :: (Integral c, Bounded c) => UnitL2 c Double -> Double -> Double
-evalUnitL2 = undefined
+evalUnitL2 :: (Integral c, UArr.Unbox c) => UnitL2 c Double -> Double -> Double
+evalUnitL2 (UnitL2 μ _ _ lf DiscreteSineTransform subdivs) = evalAt
+ where evalAt x
+         | x < 0 || x > 1
+                      = 0
+         | nsd == 0   = lfEval x
+         | i < 1 || ξ > subdivsOverlap && i < nsd
+                      = lfEval x + (subdivEval!i) ξ
+         | i < nsd    = lfEval x + (subdivEval!i) ξ
+                                 + (subdivEval!(i-1)) (ξ + 1 - subdivsOverlap)
+         | i == nsd   = lfEval x + (subdivEval!(i-1)) (ξ + 1 - subdivsOverlap)
+         | otherwise  = lfEval x
+        where i = floor $ x * subdivFreq
+              xr = x - fromIntegral i / subdivFreq
+              ξ = xr * fromIntegral subdivisionsSizeFactor
+       lfEval | Arr.length lf > 0  = lfCubicSplineEval
+                  (FFT.run FFT.dst1 $ UArr.map ((*μ) . fromIntegral) lf)
+              | otherwise          = const 0
+       subdivEval = Arr.map evalUnitL2 subdivs
+       nsd = Arr.length subdivs
 

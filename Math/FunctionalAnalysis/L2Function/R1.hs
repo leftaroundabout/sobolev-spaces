@@ -194,8 +194,8 @@ fromUniformSampled cfg@(SigSampleConfig nChunkMax
                (\j -> let i = round (fromIntegral j * nSingleChunk)
                           i' = min (nTot-1)
                                 $ round (fromIntegral (j+1) * nSingleChunk) + nTaper
-                      in (if False && j>0 then taperStart else id)
-                         . (if False && j<nSubDivs-1 then taperEnd else id)
+                      in (if j>0 then taperStart else id)
+                         . (if j<nSubDivs-1 then taperEnd else id)
                          $ Arr.slice i (i'-i) residual )
      = UnitL2 μ (round $ maxNegAmplitude/μ, round $ maxPosAmplitude/μ)
               loResQuantised DiscreteSineTransform
@@ -203,18 +203,19 @@ fromUniformSampled cfg@(SigSampleConfig nChunkMax
  where maxAllowedVal = fromIntegral (maxBound :: c) / 8
        nTot = Arr.length ys
        nSingleChunk = fromIntegral nTot / subdivFreq
+       nFullChunk = ceiling $ fromIntegral nTot / fromIntegral subdivisionsSizeFactor
        nTaper = round $ fromIntegral nTot * subdivsOverlap
                              / fromIntegral subdivisionsSizeFactor
        taperStart, taperEnd :: UArr.Vector Double -> UArr.Vector Double
-       taperStart = Arr.zipWith (*) $ Arr.generate (ceiling nSingleChunk)
+       taperStart = Arr.zipWith (*) $ Arr.generate nFullChunk
                       (\i -> if i<nTaper
                               then let x = fromIntegral i / fromIntegral nTaper
                                    in x^2 * (3 - 2*x)
                               else 1 )
-       taperEnd = Arr.zipWith (*) $ Arr.generate (ceiling nSingleChunk)
-                      (\i -> let i' = ceiling nSingleChunk - i
+       taperEnd = Arr.zipWith (*) $ Arr.generate nFullChunk
+                      (\i -> let i' = nFullChunk - i
                              in if i' < nTaper
-                              then let x = fromIntegral i / fromIntegral nTaper
+                              then let x = fromIntegral i' / fromIntegral nTaper
                                    in x^2 * (3 - 2*x)
                               else 1 )
        filterFirstNPositivesOf ::

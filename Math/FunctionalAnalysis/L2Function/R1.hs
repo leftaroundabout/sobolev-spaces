@@ -65,8 +65,11 @@ data UnitL2 c s = UnitL2 {
 --   and then evaluated at multiple x-points 
 lfCubicSplineEval :: UArr.Vector Double -> Double -> Double
 lfCubicSplineEval ys
-  | n > 1   = lcse
-  | n < 1   = const 0
+  | n > 1      = lcse
+  | n < 1      = const 0
+  | otherwise  = \x
+     -> if x<0 || x>1 then 0
+                      else ys!0 * ((2*x-1)^2 - 1)^2
  where lcse x | i < 0      = 0
               | i < 1      = ξ^2 * (3*y₁ - ð₁ + ξ*(ð₁ - 2*y₁))
               | i < n      = y₀

@@ -151,13 +151,16 @@ data SigSampleConfig = SigSampleConfig {
 
 -- | A phase-constant second-order filter, using one first-order pass
 --   in each direction.
-simpleIIRLowpass :: Double       -- ^ Cutoff frequency, normalised to 1/τ
+simpleIIRLowpass, simpleIIRHighpass
+                 :: Double       -- ^ Cutoff frequency, normalised to 1/τ
                                  --   (total data length, not sampling frequency)
                  -> UArr.Vector Double
                  -> UArr.Vector Double
 simpleIIRLowpass ω ys = Arr.postscanr' (\y carry -> (1-η)*carry + η*y) 0
                       $ Arr.postscanl' (\carry y -> (1-η)*carry + η*y) 0 ys
  where η = ω / (ω + fromIntegral (Arr.length ys))
+
+simpleIIRHighpass ω ys = Arr.zipWith (-) ys $ simpleIIRLowpass ω ys
 
 fromUniformSampled :: ∀ c . UABSample c
         => SigSampleConfig
@@ -177,8 +180,10 @@ fromUniformSampled cfg@(SigSampleConfig nChunkMax
   , maxPosAmplitude <- Arr.maximum transformed
   , maxNegAmplitude <- Arr.minimum transformed
   , μ <- maximum [maxPosAmplitude, -maxNegAmplitude, noiseLvl] / maxAllowedVal
-  , loResQuantised <- Arr.map (round . (/μ)) transformed -- TODO: purge short-range
-                                                         -- components
+  , longrangePowerSpectrum <- simpleIIRHighpass (fromIntegral nTot / subdivFreq)
+                                $ Arr.map (^2) transformed
+  , loResQuantised <- Arr.map (round . (/μ))
+            $ filterFirstNPositivesOf longrangePowerSpectrum transformed
   , backTransformed <- cubicResample nTot . sineTrafo
                          $ Arr.map ((*μ) . fromIntegral) loResQuantised
   , residual <- Arr.zipWith (-) ys backTransformed
@@ -209,4 +214,13 @@ fromUniformSampled cfg@(SigSampleConfig nChunkMax
                               then let x = fromIntegral i / fromIntegral nTaper
                                    in x^2 * (3 - 2*x)
                               else 1 )
+       filterFirstNPositivesOf ::
+            UArr.Vector Double -> UArr.Vector Double -> UArr.Vector Double
+       filterFirstNPositivesOf spect d = (`Arr.unfoldr`(0,infoPerStage))
+           $ \(i,capacity) -> if capacity>0 && i<nTot
+                               then Just $ if spect!i > 0
+                                            then (d!i, (i+1, capacity-1))
+                                            else (0, (i+1, capacity))
+                               else Nothing
+
 

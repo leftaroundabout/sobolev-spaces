@@ -146,47 +146,50 @@ data SigSampleConfig = SigSampleConfig {
     , _infoPerStage :: Int
     , _maxLocalInfo :: Int
     , _longrangeBandwidth :: Double
+    , _noiseFloorLevel :: Double
     }
 
 -- | A phase-constant second-order filter, using one first-order pass
 --   in each direction.
-simpleIIRLowpass :: Double       -- ^ Cutoff frequency, normalised to 1/τ (data length)
+simpleIIRLowpass :: Double       -- ^ Cutoff frequency, normalised to 1/τ
+                                 --   (total data length, not sampling frequency)
                  -> UArr.Vector Double
                  -> UArr.Vector Double
 simpleIIRLowpass ω ys = Arr.postscanr' (\y carry -> (1-η)*carry + η*y) 0
                       $ Arr.postscanl' (\carry y -> (1-η)*carry + η*y) 0 ys
- where η = min 1 $ ω / fromIntegral (Arr.length ys)
+ where η = ω / (ω + fromIntegral (Arr.length ys))
 
 fromUniformSampled :: ∀ c . UABSample c
         => SigSampleConfig
         -> UArr.Vector Double -> UnitL2 c Double
-fromUniformSampled cfg@(SigSampleConfig nChunkMax infoPerStage localInfo lrBandwidth) ys
+fromUniformSampled cfg@(SigSampleConfig nChunkMax
+                           infoPerStage localInfo lrBandwidth noiseLvl) ys
   | nTot < localInfo
   , transformed <- invSineTrafo ys
   , maxPosAmplitude <- Arr.maximum transformed
   , maxNegAmplitude <- Arr.minimum transformed
-  , μ <- maxAllowedVal / max maxPosAmplitude (-maxNegAmplitude)
-     = UnitL2 (recip μ) (round $ μ * maxNegAmplitude, round $ μ * maxPosAmplitude)
-              (Arr.map (round . (μ*)) transformed) DiscreteSineTransform
+  , μ <- maximum [maxPosAmplitude, -maxNegAmplitude, noiseLvl] / maxAllowedVal
+     = UnitL2 μ (round $ maxNegAmplitude/μ, round $ maxPosAmplitude/μ)
+              (Arr.map (round . (recip μ*)) transformed) DiscreteSineTransform
               Arr.empty
   | loRes <- cubicResample nChunkMax $ simpleIIRLowpass lrBandwidth ys
   , transformed <- invSineTrafo loRes
   , maxPosAmplitude <- Arr.maximum transformed
   , maxNegAmplitude <- Arr.minimum transformed
-  , μ <- maxAllowedVal / max maxPosAmplitude (-maxNegAmplitude)
-  , loResQuantised <- Arr.map (round . (μ*)) transformed -- TODO: purge short-range
+  , μ <- maximum [maxPosAmplitude, -maxNegAmplitude, noiseLvl] / maxAllowedVal
+  , loResQuantised <- Arr.map (round . (/μ)) transformed -- TODO: purge short-range
                                                          -- components
   , backTransformed <- cubicResample nTot . sineTrafo
-                         $ Arr.map ((/μ) . fromIntegral) loResQuantised
+                         $ Arr.map ((*μ) . fromIntegral) loResQuantised
   , residual <- Arr.zipWith (-) ys backTransformed
   , chunks <- Arr.generate nSubDivs
                (\j -> let i = round (fromIntegral j * nSingleChunk)
-                          i' = max nTot
+                          i' = min (nTot-1)
                                 $ round (fromIntegral (j+1) * nSingleChunk) + nTaper
-                      in (if j>0 then taperStart else id)
-                         . (if j<nSubDivs-1 then taperEnd else id)
-                         $ Arr.slice i (i'-1) residual )
-     = UnitL2 (recip μ) (round $ μ * maxNegAmplitude, round $ μ * maxPosAmplitude)
+                      in (if False && j>0 then taperStart else id)
+                         . (if False && j<nSubDivs-1 then taperEnd else id)
+                         $ Arr.slice i (i'-i) residual )
+     = UnitL2 μ (round $ maxNegAmplitude/μ, round $ maxPosAmplitude/μ)
               loResQuantised DiscreteSineTransform
               (fromUniformSampled cfg <$> chunks)
  where maxAllowedVal = fromIntegral (maxBound :: c) / 8

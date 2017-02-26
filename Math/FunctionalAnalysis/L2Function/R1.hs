@@ -62,6 +62,63 @@ data UnitL2 c s = UnitL2 {
   , unitL2Subdivisions :: BArr.Vector (UnitL2 c s)
   }
 
+data HomogenSampled v = HomogenSampled {
+       _values :: UArr.Vector v      -- ^ Starts and ends with a zero, which is not
+                                     --   considered as part of the covered range.
+     , _derivatives :: UArr.Vector v -- ^ Corresponds to function as sampled on [0,1].
+                                     --   This is also zero-bounded.
+     } deriving (Show)
+homogenSampled :: (Fractional v, UArr.Storable v) => UArr.Vector v -> HomogenSampled v
+homogenSampled vs | n > 1
+           = HomogenSampled bvs derivs
+ where derivs = Arr.cons 0 . (`Arr.snoc`0)
+                  $ Arr.imap (\j _ -> let vp = Arr.unsafeIndex bvs j
+                                          vn = Arr.unsafeIndex bvs (j+2)
+                                      in (vn - vp)/(2*h) )
+                             vs
+       n = Arr.length vs
+       h = 1 / (fromIntegral n-1)
+       bvs = Arr.cons 0 $ Arr.snoc vs 0
+fromHomogenSampled :: UArr.Storable v => HomogenSampled v -> UArr.Vector v
+fromHomogenSampled (HomogenSampled vs _) = Arr.slice 1 (Arr.length vs - 2) vs
+
+-- | 0 corresponds to the first nonzero entry of a 'HomogenSampled', 1 to the last.
+type HIndex v = v
+
+resampleHomogen :: (RealFrac v, UArr.Storable v)
+            => HomogenSampled v -> (HIndex v, HIndex v) -> Int -> HomogenSampled v
+resampleHomogen (HomogenSampled vs dvs) (start, end) n
+     | end > start, n > 1, nOld > 1
+          = HomogenSampled (preZeroes<>vals<>postZeroes) (preZeroes<>derivs<>postZeroes)
+ where -- see
+       -- https://raw.githubusercontent.com/leftaroundabout/sobolev-spaces/master/derivation/interpolation-alignment.svg
+       [nPreZeroes, nPostZeroes] = max 0 . min (n+1) . ceiling
+                              <$> [(-start-hOld) / h, (end-1-hOld) / h]
+       [preZeroes, postZeroes] = (`Arr.replicate`0) . (+1) <$> [nPreZeroes, nPostZeroes]
+       nNonzero = n - nPreZeroes - nPostZeroes
+       h = l / (fromIntegral n - 1)
+       ts = Arr.generate nNonzero $
+              \j -> start + h * fromIntegral (nPreZeroes + j)
+       vals = Arr.map (\t -> let jp = max 0 . min nOld . ceiling $ t/hOld
+                                 y₀ = vs Arr.! jp; y₁ = vs Arr.! (jp+1)
+                                 ð₀ = (dvs Arr.! jp)*hOld; ð₁ = (dvs Arr.! (jp+1))*hOld
+                                 ξ = t / hOld - fromIntegral (jp-1)
+                             in y₀
+                                + ξ * (ð₀
+                                      + ξ * (3*(y₁ - y₀) - 2*ð₀ - ð₁
+                                            + ξ * (ð₁ + ð₀ + 2*(y₀ - y₁))))
+                      ) ts
+       derivs = Arr.map (\t -> let jp = max 0 . min nOld . ceiling $ t/hOld
+                                   ð₀ = (dvs Arr.! jp)*hOld; ð₁ = (dvs Arr.! (jp+1))*hOld
+                                   ξ = t / hOld - fromIntegral (jp-1)
+                               in (ð₀ + ξ*(ð₁-ð₀)) / h
+                        ) ts
+       nOld = Arr.length vs - 2
+       hOld = 1 / (fromIntegral nOld - 1)
+       l = end - start
+
+{-# SPECIALISE resampleHomogen :: HomogenSampled Double -> (Double, Double) -> Int -> HomogenSampled Double #-}
+
 -- | Efficient only when partially applied to data array
 --   and then evaluated at multiple x-points 
 lfCubicSplineEval :: UArr.Vector Double -> Double -> Double

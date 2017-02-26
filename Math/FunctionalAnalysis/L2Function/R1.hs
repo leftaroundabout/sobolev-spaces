@@ -30,6 +30,7 @@ import qualified Numeric.FFT.Vector.Plan as FFT
 import qualified Numeric.FFT.Vector.Invertible as FFT
 
 import Data.Monoid ((<>))
+import Data.Complex
 
 subdivisionsSizeFactor :: Int
 subdivisionsSizeFactor = 8
@@ -47,7 +48,7 @@ subdivFreq = (fromIntegral nSubDivs - 1) / (1 - 1/fromIntegral subdivisionsSizeF
 subdivsOverlap :: Double
 subdivsOverlap = 1 - fromIntegral subdivisionsSizeFactor / subdivFreq
 
-data SampleMode = DiscreteSineTransform
+data SampleMode = OutlappingDFT
 
 type UABSample c = (Integral c, Bounded c, UArr.Storable c)
 
@@ -56,7 +57,7 @@ type UABSample c = (Integral c, Bounded c, UArr.Storable c)
 data UnitL2 c s = UnitL2 {
     unitL2AmplitudeFactor :: !s
   , unitL2ExtremeSampleVals :: !(c,c)
-  , unitL2LoFreqSamples :: UArr.Vector c
+  , unitL2LoFreqSamples :: UArr.Vector (Complex c)
   , unitL2LoFreqSampleMode :: !SampleMode
   , unitL2Subdivisions :: BArr.Vector (UnitL2 c s)
   }
@@ -99,23 +100,43 @@ cubicResample :: Arr.Vector v Double => Int -> v Double -> v Double
 cubicResample n ys = Arr.generate n $ \i -> spline $ fromIntegral (i+1) / fromIntegral (n+1)
  where spline = lfCubicSplineEval $ Arr.convert ys
 
-sineTrafo :: UArr.Vector Double -> UArr.Vector Double
-sineTrafo = prepareTrafos FFT.dst1 (\n αs -> αs <> UArr.replicate (n - Arr.length αs) 0)
+fourierTrafo :: UArr.Vector (Complex Double) -> UArr.Vector Double
+fourierTrafo = untwirl . prepareTrafos 2 FFT.dft prepare
+ where untwirl zs = Arr.imap (\j z -> let t = (1-n)/n + 2*fromIntegral j/n
+                                          μ = cis $ -pi * t/2
+                                      in realPart $ μ*z ) zs
+        where n = fromIntegral $ Arr.length zs
+       prepare n' αs = Arr.imap (\k x -> x * cis (-pi*fromIntegral k*(1-n)/n)) αs
+                        <> Arr.replicate (n' - Arr.length αs) 0
+        where n = fromIntegral n'
+myFFourier :: [Complex Double] -> [(Double,Double)]
+myFFourier xs = [ (t, realPart $ μ*υ)
+                | (j,υ) <- zip [0..] $ Arr.toList (FFT.run FFT.dft ξs)
+                , let μ = cis $ -pi * t/2
+                      t = (1-n)/n + 2*fromIntegral j/n ]
+ where ξs = UArr.fromList $
+               [x * cis (-pi*k*(1-n)/n) | (k,x) <- zip [0..] xs]
+             ++ (const 0<$>xs)
+       n = fromIntegral $ length xs * 2
 
-invSineTrafo :: UArr.Vector Double -> UArr.Vector Double
-invSineTrafo = prepareTrafos FFT.idst1 cubicResample
+invFourierTrafo :: UArr.Vector Double -> UArr.Vector (Complex Double)
+invFourierTrafo = postwirl . prepareTrafos 1 FFT.idft (\n -> pretwirl . cubicResample n)
+ where pretwirl :: UArr.Vector Double -> UArr.Vector (Complex Double)
+       pretwirl zs = Arr.imap (\j z -> let t = (1-n)/n + 2*fromIntegral j/n
+                                       in mkPolar z (pi * t/2) ) zs
+        where n = fromIntegral $ Arr.length zs
+       postwirl αs = Arr.imap (\k α -> 2 * α * cis (pi*fromIntegral k*(1-n)/n))
+                      $ Arr.take (Arr.length αs`div`2) αs
+        where n = fromIntegral $ Arr.length αs
 
-prepareTrafos :: (UArr.Storable a, UArr.Storable b)
-                    => FFT.Transform a b
-                     -> (Int -> UArr.Vector a -> UArr.Vector a)
-                     -> UArr.Vector a -> UArr.Vector b
-prepareTrafos transform resize = \αs
-   -> let nmin = Arr.length αs
-      in case Map.lookupGT nmin plans of
-          Just (n,plan) -> FFT.execute plan
-                            $ if n > nmin
-                               then resize n αs
-                               else αs
+prepareTrafos :: (UArr.Storable a, UArr.Storable b, UArr.Storable c)
+                    => Int -> FFT.Transform a b
+                     -> (Int -> UArr.Vector c -> UArr.Vector a)
+                     -> UArr.Vector c -> UArr.Vector b
+prepareTrafos sizeFactor transform resize = \αs
+   -> let nmin = Arr.length αs * sizeFactor
+      in case Map.lookupGE nmin plans of
+          Just (n,plan) -> FFT.execute plan $ resize n αs
  where plans = Map.fromList [ (n, FFT.plan transform n)
                             | p <- [3..10]
                             , υ <- [0,1]
@@ -123,7 +144,7 @@ prepareTrafos transform resize = \αs
                             ]
 
 evalUnitL2 :: (Integral c, UArr.Storable c) => UnitL2 c Double -> Double -> Double
-evalUnitL2 (UnitL2 μ _ lf DiscreteSineTransform subdivs) = evalAt
+evalUnitL2 (UnitL2 μ _ lf OutlappingDFT subdivs) = evalAt
  where evalAt x
          | x < 0 || x > 1
                       = 0
@@ -138,7 +159,7 @@ evalUnitL2 (UnitL2 μ _ lf DiscreteSineTransform subdivs) = evalAt
               xr = x - fromIntegral i / subdivFreq
               ξ = xr * fromIntegral subdivisionsSizeFactor
        lfEval | Arr.length lf > 0  = lfCubicSplineEval
-                  (sineTrafo $ UArr.map ((*μ) . fromIntegral) lf)
+                  (fourierTrafo $ UArr.map ((*realToFrac μ) . fromIntegralℂ) lf)
               | otherwise          = const 0
        subdivEval = Arr.map evalUnitL2 subdivs
        nsd = Arr.length subdivs
@@ -171,24 +192,24 @@ fromUniformSampled :: ∀ c . UABSample c
 fromUniformSampled cfg@(SigSampleConfig nChunkMax
                            infoPerStage localInfo lrBandwidth noiseLvl) ys
   | nTot < localInfo
-  , transformed <- invSineTrafo ys
-  , maxPosAmplitude <- Arr.maximum transformed
-  , maxNegAmplitude <- Arr.minimum transformed
+  , transformed <- invFourierTrafo ys
+  , maxPosAmplitude <- Arr.foldl' maxℂ 0 transformed
+  , maxNegAmplitude <- Arr.foldl' minℂ 0 transformed
   , μ <- maximum [maxPosAmplitude, -maxNegAmplitude, noiseLvl] / maxAllowedVal
      = UnitL2 μ (round $ maxNegAmplitude/μ, round $ maxPosAmplitude/μ)
-              (Arr.map (round . (recip μ*)) transformed) DiscreteSineTransform
+              (Arr.map (roundℂ . (recip (realToFrac μ)*)) transformed) OutlappingDFT
               Arr.empty
   | loRes <- cubicResample nChunkMax $ simpleIIRLowpass lrBandwidth ys
-  , transformed <- invSineTrafo loRes
-  , maxPosAmplitude <- Arr.maximum transformed
-  , maxNegAmplitude <- Arr.minimum transformed
+  , transformed <- invFourierTrafo loRes
+  , maxPosAmplitude <- Arr.foldl' maxℂ 0 transformed
+  , maxNegAmplitude <- Arr.foldl' minℂ 0 transformed
   , μ <- maximum [maxPosAmplitude, -maxNegAmplitude, noiseLvl] / maxAllowedVal
   , longrangePowerSpectrum <- simpleIIRHighpass (fromIntegral nTot / subdivFreq)
-                                $ Arr.map (^2) transformed
-  , loResQuantised <- Arr.map (round . (/μ))
+                                $ Arr.map abs²ℂ transformed
+  , loResQuantised <- Arr.map (roundℂ . (/realToFrac μ))
             $ filterFirstNPositivesOf longrangePowerSpectrum transformed
-  , backTransformed <- cubicResample nTot . sineTrafo
-                         $ Arr.map ((*μ) . fromIntegral) loResQuantised
+  , backTransformed <- cubicResample nTot . fourierTrafo
+                         $ Arr.map ((*realToFrac μ) . fromIntegralℂ) loResQuantised
   , residual <- Arr.zipWith (-) ys backTransformed
   , chunks <- Arr.generate nSubDivs
                (\j -> let i = round (fromIntegral j * nSingleChunk)
@@ -198,7 +219,7 @@ fromUniformSampled cfg@(SigSampleConfig nChunkMax
                          . (if j<nSubDivs-1 then taperEnd else id)
                          $ Arr.slice i (i'-i) residual )
      = UnitL2 μ (round $ maxNegAmplitude/μ, round $ maxPosAmplitude/μ)
-              loResQuantised DiscreteSineTransform
+              loResQuantised OutlappingDFT
               (fromUniformSampled cfg <$> chunks)
  where maxAllowedVal = fromIntegral (maxBound :: c) / 8
        nTot = Arr.length ys
@@ -218,8 +239,8 @@ fromUniformSampled cfg@(SigSampleConfig nChunkMax
                               then let x = fromIntegral i' / fromIntegral nTaper
                                    in x^2 * (3 - 2*x)
                               else 1 )
-       filterFirstNPositivesOf ::
-            UArr.Vector Double -> UArr.Vector Double -> UArr.Vector Double
+       filterFirstNPositivesOf :: (Num n, UArr.Storable n) => UArr.Vector Double
+                                   -> UArr.Vector n -> UArr.Vector n
        filterFirstNPositivesOf spect d = (`Arr.unfoldr`(0,infoPerStage))
            $ \(i,capacity) -> if capacity>0 && i<nTot
                                then Just $ if spect!i > 0
@@ -228,3 +249,16 @@ fromUniformSampled cfg@(SigSampleConfig nChunkMax
                                else Nothing
 
 
+
+fromIntegralℂ :: (Num s, Integral c) => Complex c -> Complex s
+fromIntegralℂ (r:+i) = fromIntegral r :+ fromIntegral i
+
+roundℂ :: (RealFrac s, Integral c) => Complex s -> Complex c
+roundℂ (r:+i) = round r :+ round i
+
+minℂ, maxℂ :: Ord s => s -> Complex s -> s
+minℂ p (r:+i) = min p (min r i)
+maxℂ p (r:+i) = max p (max r i)
+
+abs²ℂ :: Num s => Complex s -> s
+abs²ℂ (r:+i) = r^2 + i^2

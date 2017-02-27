@@ -63,14 +63,16 @@ data UnitL2 c s = UnitL2 {
   }
 
 data HomogenSampled v = HomogenSampled {
-       _values :: UArr.Vector v      -- ^ Starts and ends with a zero, which is not
+       _homogenSampledRange :: (HIndex v, HIndex v)
+     , _values :: UArr.Vector v      -- ^ Starts and ends with a zero, which is not
                                      --   considered as part of the covered range.
      , _derivatives :: UArr.Vector v -- ^ Corresponds to function as sampled on [0,1].
                                      --   This is also zero-bounded.
      } deriving (Show)
-homogenSampled :: (Fractional v, UArr.Storable v) => UArr.Vector v -> HomogenSampled v
-homogenSampled vs | n > 1
-           = HomogenSampled bvs derivs
+homogenSampled :: (Fractional v, UArr.Storable v)
+                    => UArr.Vector v -> (HIndex v, HIndex v) -> HomogenSampled v
+homogenSampled vs range | n > 1
+           = HomogenSampled range bvs derivs
  where derivs = Arr.cons 0 . (`Arr.snoc`0)
                   $ Arr.imap (\j _ -> let vp = Arr.unsafeIndex bvs j
                                           vn = Arr.unsafeIndex bvs (j+2)
@@ -79,17 +81,40 @@ homogenSampled vs | n > 1
        n = Arr.length vs
        h = 1 / (fromIntegral n-1)
        bvs = Arr.cons 0 $ Arr.snoc vs 0
-fromHomogenSampled :: UArr.Storable v => HomogenSampled v -> UArr.Vector v
-fromHomogenSampled (HomogenSampled vs _) = Arr.slice 1 (Arr.length vs - 2) vs
+
+
+homogenSampledInformation :: (RealFrac v, UArr.Storable v) => HomogenSampled v -> Int
+homogenSampledInformation (HomogenSampled (start,end) vs _) = ceiling $ l * ν
+ where ν = fromIntegral $ Arr.length vs - 3
+       l = end - start
+
+class DynamicDimension a where
+  dynDimension :: a -> Int
+instance UArr.Storable v => DynamicDimension (UArr.Vector v) where
+  dynDimension = Arr.length
+instance (RealFrac v, UArr.Storable v) => DynamicDimension (HomogenSampled v) where
+  dynDimension = homogenSampledInformation
+
+subdivideHomogenSampled :: Fractional v 
+              => Int -> HomogenSampled v -> BArr.Vector (HomogenSampled v)
+subdivideHomogenSampled n (HomogenSampled (start,end) vs dvs)
+       = Arr.generate n (\j -> let rStart = start + fromIntegral j * lr
+                                   rEnd = rStart + lr
+                               in HomogenSampled (rStart,rEnd) vs dvs )
+ where l = end - start
+       lr = l / fromIntegral n
+
 
 -- | 0 corresponds to the first nonzero entry of a 'HomogenSampled', 1 to the last.
 type HIndex v = v
 
 resampleHomogen :: (RealFrac v, UArr.Storable v)
             => HomogenSampled v -> (HIndex v, HIndex v) -> Int -> HomogenSampled v
-resampleHomogen (HomogenSampled vs dvs) (start, end) n
+resampleHomogen (HomogenSampled (start₀, end₀) vs dvs) (start', end') n
      | end > start, n > 1, nOld > 1
-          = HomogenSampled (preZeroes<>vals<>postZeroes) (preZeroes<>derivs<>postZeroes)
+          = HomogenSampled (0,1)
+                           (preZeroes<>vals<>postZeroes)
+                           (preZeroes<>derivs<>postZeroes)
  where -- see
        -- https://raw.githubusercontent.com/leftaroundabout/sobolev-spaces/master/derivation/interpolation-alignment.svg
        [nPreZeroes, nPostZeroes] = max 0 . min (n+1) . ceiling
@@ -116,9 +141,13 @@ resampleHomogen (HomogenSampled vs dvs) (start, end) n
        nOld = Arr.length vs - 2
        hOld = 1 / (fromIntegral nOld - 1)
        l = end - start
+       start = start₀ + l₀ * start'
+       end = start₀ + l₀ * end'
+       l₀ = end₀ - start₀
 
 {-# SPECIALISE resampleHomogen :: HomogenSampled Double -> (Double, Double) -> Int -> HomogenSampled Double #-}
 
+      
 -- | Efficient only when partially applied to data array
 --   and then evaluated at multiple x-points 
 lfCubicSplineEval :: UArr.Vector Double -> Double -> Double
@@ -186,12 +215,12 @@ invFourierTrafo = postwirl . prepareTrafos 1 FFT.idft (\n -> pretwirl . cubicRes
                       $ Arr.take (Arr.length αs`div`2) αs
         where n = fromIntegral $ Arr.length αs
 
-prepareTrafos :: (UArr.Storable a, UArr.Storable b, UArr.Storable c)
+prepareTrafos :: (UArr.Storable a, UArr.Storable b, DynamicDimension c)
                     => Int -> FFT.Transform a b
-                     -> (Int -> UArr.Vector c -> UArr.Vector a)
-                     -> UArr.Vector c -> UArr.Vector b
+                     -> (Int -> c -> UArr.Vector a)
+                     -> c -> UArr.Vector b
 prepareTrafos sizeFactor transform resize = \αs
-   -> let nmin = Arr.length αs * sizeFactor
+   -> let nmin = dynDimension αs * sizeFactor
       in case Map.lookupGE nmin plans of
           Just (n,plan) -> FFT.execute plan $ resize n αs
  where plans = Map.fromList [ (n, FFT.plan transform n)

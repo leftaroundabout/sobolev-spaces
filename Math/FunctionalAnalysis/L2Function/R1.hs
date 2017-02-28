@@ -29,6 +29,7 @@ import qualified Data.Vector.Generic as Arr
 import qualified Numeric.FFT.Vector.Plan as FFT
 import qualified Numeric.FFT.Vector.Invertible as FFT
 
+import Control.Arrow
 import Data.Monoid ((<>))
 import Data.Complex
 
@@ -187,43 +188,36 @@ cubicResample n ys = Arr.generate n $ \i -> spline $ fromIntegral (i+1) / fromIn
  where spline = lfCubicSplineEval $ Arr.convert ys
 
 fourierTrafo :: UArr.Vector (Complex Double) -> UArr.Vector Double
-fourierTrafo = untwirl . prepareTrafos 2 FFT.dft prepare
- where untwirl zs = Arr.imap (\j z -> let t = (1-n)/n + 2*fromIntegral j/n
-                                          μ = cis $ -pi * t/2
-                                      in realPart $ μ*z ) zs
-        where n = fromIntegral $ Arr.length zs
-       prepare n' αs = Arr.imap (\k x -> x * cis (-pi*fromIntegral k*(1-n)/n)) αs
-                        <> Arr.replicate (n' - Arr.length αs) 0
-        where n = fromIntegral n'
-myFFourier :: [Complex Double] -> [(Double,Double)]
-myFFourier xs = [ (t, realPart $ μ*υ)
-                | (j,υ) <- zip [0..] $ Arr.toList (FFT.run FFT.dft ξs)
-                , let μ = cis $ -pi * t/2
-                      t = (1-n)/n + 2*fromIntegral j/n ]
- where ξs = UArr.fromList $
-               [x * cis (-pi*k*(1-n)/n) | (k,x) <- zip [0..] xs]
-             ++ (const 0<$>xs)
-       n = fromIntegral $ length xs * 2
+fourierTrafo = prepareTrafos 2 FFT.dft $ prepare &&& untwirl
+ where untwirl n' = Arr.zipWith (\μ -> realPart . (μ*)) μs
+        where μs = Arr.generate n' $ \j -> let t = (1-n)/n + 2*fromIntegral j/n
+                                           in cis $ -pi * t/2
+              n = fromIntegral n'
+       prepare n' = \αs -> Arr.zipWith (*) ηs αs <> Arr.replicate (n' - Arr.length αs) 0
+        where ηs = Arr.generate n' $ \k -> cis (-pi*fromIntegral k*(1-n)/n)
+              n = fromIntegral n'
 
 invFourierTrafo :: UArr.Vector Double -> UArr.Vector (Complex Double)
-invFourierTrafo = postwirl . prepareTrafos 1 FFT.idft (\n -> pretwirl . cubicResample n)
- where pretwirl :: UArr.Vector Double -> UArr.Vector (Complex Double)
-       pretwirl zs = Arr.imap (\j z -> let t = (1-n)/n + 2*fromIntegral j/n
-                                       in mkPolar z (pi * t/2) ) zs
-        where n = fromIntegral $ Arr.length zs
-       postwirl αs = Arr.imap (\k α -> 2 * α * cis (pi*fromIntegral k*(1-n)/n))
-                      $ Arr.take (Arr.length αs`div`2) αs
-        where n = fromIntegral $ Arr.length αs
+invFourierTrafo = prepareTrafos 1 FFT.idft
+                    $ \n -> (pretwirl n . cubicResample n, postwirl n)
+ where pretwirl n' = Arr.zipWith (\(rμ:+iμ) z -> rμ*z :+ iμ*z) μs
+        where μs = Arr.generate n' $ \j -> let t = (1-n)/n + 2*fromIntegral j/n
+                                           in cis $ pi * t/2
+              n = fromIntegral n'
+       postwirl n' = Arr.zipWith (*) ηs
+        where ηs = Arr.generate (n'`div`2) $ \k -> 2 * cis (pi*fromIntegral k*(1-n)/n)
+              n = fromIntegral n'
 
 prepareTrafos :: (UArr.Storable a, UArr.Storable b, DynamicDimension c)
                     => Int -> FFT.Transform a b
-                     -> (Int -> c -> UArr.Vector a)
-                     -> c -> UArr.Vector b
-prepareTrafos sizeFactor transform resize = \αs
+                     -> (Int -> (c -> UArr.Vector a, UArr.Vector b -> r))
+                     -> c -> r
+prepareTrafos sizeFactor transform env = \αs
    -> let nmin = dynDimension αs * sizeFactor
       in case Map.lookupGE nmin plans of
-          Just (n,plan) -> FFT.execute plan $ resize n αs
- where plans = Map.fromList [ (n, FFT.plan transform n)
+          Just (n,(plan,(preproc,postproc)))
+              -> postproc . FFT.execute plan $ preproc αs
+ where plans = Map.fromList [ (n, (FFT.plan transform n, env n))
                             | p <- [3..10]
                             , υ <- [0,1]
                             , let n = 2^p + υ*2^(p-1) -- [8,12,16,24,32,48..]

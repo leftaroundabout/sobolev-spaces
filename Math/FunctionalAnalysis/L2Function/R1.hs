@@ -15,7 +15,7 @@
 
 module Math.FunctionalAnalysis.L2Function.R1 (
                          UnitL2(..)
-                       , evalUnitL2
+                       , toUniformSampled
                        , fromUniformSampled
                        , SampleMode(..)
                        , SigSampleConfig(..)
@@ -32,6 +32,8 @@ import qualified Numeric.FFT.Vector.Invertible as FFT
 import Control.Arrow
 import Data.Monoid ((<>))
 import Data.Complex
+
+import Data.Foldable (fold)
 
 subdivisionsSizeFactor :: Int
 subdivisionsSizeFactor = 8
@@ -71,8 +73,8 @@ data HomogenSampled v = HomogenSampled {
                                      --   This is also zero-bounded.
      } deriving (Show)
 homogenSampled :: (Fractional v, UArr.Storable v)
-                    => UArr.Vector v -> (HIndex v, HIndex v) -> HomogenSampled v
-homogenSampled vs range | n > 1
+                    => (HIndex v, HIndex v) -> UArr.Vector v -> HomogenSampled v
+homogenSampled range vs | n > 1
            = HomogenSampled range bvs derivs
  where derivs = Arr.cons 0 . (`Arr.snoc`0)
                   $ Arr.imap (\j _ -> let vp = Arr.unsafeIndex bvs j
@@ -266,43 +268,78 @@ simpleIIRLowpass ω ys = Arr.postscanr' (\y carry -> (1-η)*carry + η*y) 0
 
 simpleIIRHighpass ω ys = Arr.zipWith (-) ys $ simpleIIRLowpass ω ys
 
+toUniformSampledLike :: UABSample c
+           => HomogenSampled Double -> UnitL2 c Double -> UArr.Vector Double
+toUniformSampledLike (HomogenSampled (start,end) vs _) (UnitL2 μLr _ quantisedLr _ _)
+             = Arr.slice 1 n result
+ where nRef = Arr.length vs - 3
+       l = end - start
+       hRef = 1 / fromIntegral nRef
+       h = l / fromIntegral nRef
+       t₀Ref = - start / l 
+       i₀ = ceiling $ start / hRef
+       iEnd = ceiling $ end / hRef
+       t₀ = t₀Ref + fromIntegral i₀ * h
+       tEnd = t₀Ref + fromIntegral (iEnd-1) * h
+       n = iEnd - i₀
+       HomogenSampled _ result _ = resampleHomogen backTransformed (t₀,tEnd) n
+       backTransformed = homogenSampled (0,1) . fourierTrafo
+                         $ Arr.map ((*realToFrac μLr) . fromIntegralℂ) quantisedLr
+
+toUniformSampled :: UABSample c => Int -> UnitL2 c Double -> UArr.Vector Double
+toUniformSampled n = toUniformSampledLike . homogenSampled (0,1) $ UArr.replicate (n+1) 0
+
 fromUniformSampled :: ∀ c . UABSample c
         => SigSampleConfig
         -> UArr.Vector Double -> UnitL2 c Double
-fromUniformSampled cfg@(SigSampleConfig nChunkMax
-                           infoPerStage localInfo lrBandwidth noiseLvl) ys
-  | nTot < localInfo
-  , transformed <- invFourierTrafo ys
-  , maxPosAmplitude <- Arr.foldl' maxℂ 0 transformed
-  , maxNegAmplitude <- Arr.foldl' minℂ 0 transformed
-  , μ <- maximum [maxPosAmplitude, -maxNegAmplitude, noiseLvl] / maxAllowedVal
-     = UnitL2 μ (round $ maxNegAmplitude/μ, round $ maxPosAmplitude/μ)
-              (Arr.map (roundℂ . (recip (realToFrac μ)*)) transformed) OutlappingDFT
-              Arr.empty
-  | loRes <- cubicResample nChunkMax $ simpleIIRLowpass lrBandwidth ys
-  , transformed <- invFourierTrafo loRes
-  , maxPosAmplitude <- Arr.foldl' maxℂ 0 transformed
-  , maxNegAmplitude <- Arr.foldl' minℂ 0 transformed
-  , μ <- maximum [maxPosAmplitude, -maxNegAmplitude, noiseLvl] / maxAllowedVal
-  , longrangePowerSpectrum <- simpleIIRHighpass (fromIntegral nTot / subdivFreq)
-                                $ Arr.map abs²ℂ transformed
-  , loResQuantised <- Arr.map (roundℂ . (/realToFrac μ))
-            $ filterFirstNPositivesOf longrangePowerSpectrum transformed
-  , backTransformed <- cubicResample nTot . fourierTrafo
-                         $ Arr.map ((*realToFrac μ) . fromIntegralℂ) loResQuantised
-  , residual <- Arr.zipWith (-) ys backTransformed
-  , chunks <- Arr.generate nSubDivs
-               (\j -> let i = round (fromIntegral j * nSingleChunk)
-                          i' = min (nTot-1)
-                                $ round (fromIntegral (j+1) * nSingleChunk) + nTaper
-                      in (if j>0 then taperStart else id)
-                         . (if j<nSubDivs-1 then taperEnd else id)
-                         $ Arr.slice i (i'-i) residual )
-     = UnitL2 μ (round $ maxNegAmplitude/μ, round $ maxPosAmplitude/μ)
-              loResQuantised OutlappingDFT
-              (fromUniformSampled cfg <$> chunks)
- where maxAllowedVal = fromIntegral (maxBound :: c) / 8
-       nTot = Arr.length ys
+fromUniformSampled cfg allYs = result
+ where result = chunkFromUniform cfg residuals
+       residuals = residualLayers cfg allYs $ pure result
+
+residualLayers :: UABSample c => SigSampleConfig -> UArr.Vector Double
+                      -> BArr.Vector (UnitL2 c Double) -> [HomogenSampled Double]
+residualLayers cfg@(SigSampleConfig _ _ _ lrBandwidth _) allYs modChunks
+       = lowpassed : residualLayers cfg topResidual subchunks
+ where longrange = fold $ Arr.zipWith toUniformSampledLike
+              (subdivideHomogenSampled nSubDivs lowpassed) modChunks
+       lowpassed = homogenSampled (0,1) (simpleIIRLowpass lrBandwidth allYs)
+       topResidual = Arr.zipWith (-) allYs longrange
+       subchunks = modChunks >>= unitL2Subdivisions
+
+chunkFromUniform :: ∀ c . UABSample c
+               => SigSampleConfig
+               -> [HomogenSampled Double] -- ^ Lazy list of signal parts. The head
+                                          --   contains just the lowpassed version
+                                          --   of the full signal we try to describe;
+                                          --   the subsequent layers contain residual
+                                          --   information not yet captured by that
+                                          --   long-range description.
+               -> UnitL2 c Double
+chunkFromUniform cfg@(SigSampleConfig nChunkMax
+                           infoPerStage localInfo lrBandwidth noiseLvl)
+                      (lowpassed:residuals)
+            = UnitL2 μLr (round $ maxNegAmplitudeLr/μLr, round $ maxPosAmplitudeLr/μLr)
+                  quantisedLr OutlappingDFT
+                  subchunks
+ where HomogenSampled _ loRes _ = resampleHomogen lowpassed (0,1) nChunkMax
+       transformedLr = invFourierTrafo loRes
+       maxPosAmplitudeLr = Arr.foldl' maxℂ 0 transformedLr
+       maxNegAmplitudeLr = Arr.foldl' minℂ 0 transformedLr
+       μLr = maximum [maxPosAmplitudeLr, -maxNegAmplitudeLr, noiseLvl]
+               / maxAllowedVal
+       powerSpectrumLr = simpleIIRHighpass (fromIntegral nTot / subdivFreq)
+                                $ Arr.map abs²ℂ transformedLr
+       quantisedLr :: UArr.Vector (Complex c)
+       quantisedLr = Arr.map (roundℂ . (/realToFrac μLr))
+            $ filterFirstNPositivesOf powerSpectrumLr transformedLr
+       subResiduals = transposeV
+               $ map (subdivideHomogenSampled nSubDivs) residuals
+       subchunks
+        | nTot < localInfo
+                     = Arr.empty
+        | otherwise  = Arr.map (chunkFromUniform cfg) subResiduals
+       maxAllowedVal = fromIntegral (maxBound :: c) / 8
+       nTot = dynDimension lowpassed
        nSingleChunk = fromIntegral nTot / subdivFreq
        nFullChunk = ceiling $ fromIntegral nTot / fromIntegral subdivisionsSizeFactor
        nTaper = round $ fromIntegral nTot * subdivsOverlap
@@ -328,6 +365,10 @@ fromUniformSampled cfg@(SigSampleConfig nChunkMax
                                             else (0, (i+1, capacity))
                                else Nothing
 
+
+transposeV :: (Arr.Vector v a, Arr.Vector v [a]) => [v a] -> v [a]
+transposeV (h:q) = Arr.imap (\i xh -> xh : map (Arr.!i) q) h
+transposeV [] = Arr.empty
 
 
 fromIntegralℂ :: (Num s, Integral c) => Complex c -> Complex s

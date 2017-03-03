@@ -101,13 +101,15 @@ subdivideHomogenSampled n (HomogenSampled (start,end) vs dvs)
 -- | 0 corresponds to the first nonzero entry of a 'HomogenSampled', 1 to the last.
 type HIndex v = v
 
-resampleHomogen :: (RealFrac v, UArr.Storable v)
+resampleHomogen :: (RealFrac v, UArr.Storable v, Show v)
             => HomogenSampled v -> (HIndex v, HIndex v) -> Int -> HomogenSampled v
 resampleHomogen (HomogenSampled (start₀, end₀) vs dvs) (start', end') n
      | end > start, n > 1, nOld > 1
           = HomogenSampled (0,1)
                            (preZeroes<>vals<>postZeroes)
                            (preZeroes<>derivs<>postZeroes)
+     | otherwise  = error $ "resampleHomogen "++show ( ((start₀,end₀),nOld)
+                                                     , ((start', end'), n) )
  where -- see
        -- https://raw.githubusercontent.com/leftaroundabout/sobolev-spaces/master/derivation/interpolation-alignment.svg
        [nPreZeroes, nPostZeroes] = max 0 . min (n+1) . ceiling
@@ -240,21 +242,29 @@ simpleIIRHighpass ω ys = Arr.zipWith (-) ys $ simpleIIRLowpass ω ys
 
 toUniformSampledLike :: UABSample c
            => HomogenSampled Double -> UnitL2 c Double -> UArr.Vector Double
-toUniformSampledLike (HomogenSampled (start,end) vs _) (UnitL2 μLr _ quantisedLr _ _)
+toUniformSampledLike range@(HomogenSampled (start,end) vs _)
+                        (UnitL2 μLr _ quantisedLr _ subchunks)
              = Arr.slice 1 n result
  where nRef = Arr.length vs - 3
-       l = end - start
+       ℓ = end - start
        hRef = 1 / fromIntegral nRef
-       h = l / fromIntegral nRef
-       t₀Ref = - start / l 
+       h = 1 / fromIntegral n
+       t₀Ref = - start / ℓ
        i₀ = ceiling $ start / hRef
        iEnd = ceiling $ end / hRef
        t₀ = t₀Ref + fromIntegral i₀ * h
-       tEnd = t₀Ref + fromIntegral (iEnd-1) * h
+       tEnd = t₀Ref + fromIntegral iEnd * h
        n = iEnd - i₀
-       HomogenSampled _ result _ = resampleHomogen backTransformed (t₀,tEnd) n
        backTransformed = homogenSampled (0,1) . fourierTrafo
                          $ Arr.map ((*realToFrac μLr) . fromIntegralℂ) quantisedLr
+       HomogenSampled _ resultLr' _ = resampleHomogen backTransformed (t₀,tEnd) n
+       result, resultLr, subResult :: UArr.Vector Double
+       resultLr = Arr.slice 1 (n-1) resultLr'
+       result = Arr.zipWith (+) resultLr (subResult
+                             <> Arr.replicate (Arr.length resultLr
+                                                    - Arr.length subResult) 0)
+       subResult = fold $ Arr.zipWith toUniformSampledLike
+                     (subdivideHomogenSampled nSubDivs range) subchunks
 
 toUniformSampled :: UABSample c => Int -> UnitL2 c Double -> UArr.Vector Double
 toUniformSampled n = toUniformSampledLike . homogenSampled (0,1) $ UArr.replicate (n+1) 0
@@ -266,12 +276,16 @@ fromUniformSampled cfg allYs = result
  where result = chunkFromUniform cfg residuals
        residuals = residualLayers cfg allYs $ pure result
 
+onlyLongrange :: UnitL2 c Double -> UnitL2 c Double
+onlyLongrange f = f {unitL2Subdivisions = Arr.empty}
+
 residualLayers :: UABSample c => SigSampleConfig -> UArr.Vector Double
                       -> BArr.Vector (UnitL2 c Double) -> [HomogenSampled Double]
 residualLayers cfg@(SigSampleConfig _ _ _ lrBandwidth _) allYs modChunks
        = lowpassed : residualLayers cfg topResidual subchunks
  where longrange = fold $ Arr.zipWith toUniformSampledLike
-              (subdivideHomogenSampled nSubDivs lowpassed) modChunks
+              (subdivideHomogenSampled (Arr.length modChunks) lowpassed)
+              (onlyLongrange <$> modChunks)
        lowpassed = homogenSampled (0,1) (simpleIIRLowpass lrBandwidth allYs)
        topResidual = Arr.zipWith (-) allYs longrange
        subchunks = modChunks >>= unitL2Subdivisions
@@ -305,7 +319,7 @@ chunkFromUniform cfg@(SigSampleConfig nChunkMax
        subResiduals = transposeV
                $ map (subdivideHomogenSampled nSubDivs) residuals
        subchunks
-        | nTot < localInfo
+        | nTot < max (3*nSubDivs) localInfo
                      = Arr.empty
         | otherwise  = Arr.map (chunkFromUniform cfg) subResiduals
        maxAllowedVal = fromIntegral (maxBound :: c) / 8

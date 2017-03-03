@@ -35,21 +35,11 @@ import Data.Complex
 
 import Data.Foldable (fold)
 
-subdivisionsSizeFactor :: Int
-subdivisionsSizeFactor = 8
-
 nSubDivs :: Int
-nSubDivs = 9
+nSubDivs = 8
 
--- ℓ = 1/subdivisionsSizeFactor
--- τ = 1/subdivFreq
--- (𝑛−1) ⋅ τ + ℓ = 1
--- τ = (1 − ℓ)/(𝑛 − 1)
 subdivFreq :: Double
-subdivFreq = (fromIntegral nSubDivs - 1) / (1 - 1/fromIntegral subdivisionsSizeFactor)
-
-subdivsOverlap :: Double
-subdivsOverlap = 1 - fromIntegral subdivisionsSizeFactor / subdivFreq
+subdivFreq = 1 / fromIntegral nSubDivs
 
 data SampleMode = OutlappingDFT
 
@@ -221,30 +211,10 @@ prepareTrafos sizeFactor transform env = \αs
               -> postproc . FFT.execute plan $ preproc αs
  where plans = Map.fromList [ (n, (FFT.plan transform n, env n))
                             | p <- [3..10]
-                            , υ <- [0,1]
-                            , let n = 2^p + υ*2^(p-1) -- [8,12,16,24,32,48..]
+                            , υ <- [1,0]
+                            , let n = 2^p - υ*2^(p-2) -- [6,8,12,16,24,32,48.. 1024]
                             ]
 
-evalUnitL2 :: (Integral c, UArr.Storable c) => UnitL2 c Double -> Double -> Double
-evalUnitL2 (UnitL2 μ _ lf OutlappingDFT subdivs) = evalAt
- where evalAt x
-         | x < 0 || x > 1
-                      = 0
-         | nsd == 0   = lfEval x
-         | i < 1 || ξ > subdivsOverlap && i < nsd
-                      = lfEval x + (subdivEval!i) ξ
-         | i < nsd    = lfEval x + (subdivEval!i) ξ
-                                 + (subdivEval!(i-1)) (ξ + 1 - subdivsOverlap)
-         | i == nsd   = lfEval x + (subdivEval!(i-1)) (ξ + 1 - subdivsOverlap)
-         | otherwise  = lfEval x
-        where i = floor $ x * subdivFreq
-              xr = x - fromIntegral i / subdivFreq
-              ξ = xr * fromIntegral subdivisionsSizeFactor
-       lfEval | Arr.length lf > 0  = lfCubicSplineEval
-                  (fourierTrafo $ UArr.map ((*realToFrac μ) . fromIntegralℂ) lf)
-              | otherwise          = const 0
-       subdivEval = Arr.map evalUnitL2 subdivs
-       nsd = Arr.length subdivs
 
 
 data SigSampleConfig = SigSampleConfig {
@@ -341,21 +311,7 @@ chunkFromUniform cfg@(SigSampleConfig nChunkMax
        maxAllowedVal = fromIntegral (maxBound :: c) / 8
        nTot = dynDimension lowpassed
        nSingleChunk = fromIntegral nTot / subdivFreq
-       nFullChunk = ceiling $ fromIntegral nTot / fromIntegral subdivisionsSizeFactor
-       nTaper = round $ fromIntegral nTot * subdivsOverlap
-                             / fromIntegral subdivisionsSizeFactor
-       taperStart, taperEnd :: UArr.Vector Double -> UArr.Vector Double
-       taperStart = Arr.zipWith (*) $ Arr.generate nFullChunk
-                      (\i -> if i<nTaper
-                              then let x = fromIntegral i / fromIntegral nTaper
-                                   in x^2 * (3 - 2*x)
-                              else 1 )
-       taperEnd = Arr.zipWith (*) $ Arr.generate nFullChunk
-                      (\i -> let i' = nFullChunk - i
-                             in if i' < nTaper
-                              then let x = fromIntegral i' / fromIntegral nTaper
-                                   in x^2 * (3 - 2*x)
-                              else 1 )
+       nFullChunk = ceiling $ fromIntegral nTot * subdivFreq
        filterFirstNPositivesOf :: (Num n, UArr.Storable n) => UArr.Vector Double
                                    -> UArr.Vector n -> UArr.Vector n
        filterFirstNPositivesOf spect d = (`Arr.unfoldr`(0,infoPerStage))

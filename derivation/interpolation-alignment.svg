@@ -14,7 +14,7 @@
    id="svg2"
    version="1.1"
    inkscape:version="0.48.4 r9939"
-   sodipodi:docname="New document 1">
+   sodipodi:docname="interpolation-alignment.svg">
   <defs
      id="defs4">
     <marker
@@ -62,7 +62,7 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title></dc:title>
+        <dc:title />
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -388,187 +388,164 @@
       </g>
     </g>
     <g
-       id="g5049">
+       id="g3855">
       <text
          sodipodi:linespacing="125%"
          id="text2985"
-         y="191.7122"
-         x="216.97464"
+         y="197.7122"
+         x="246.97464"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
          xml:space="preserve"><tspan
-           y="191.7122"
-           x="216.97464"
+           y="197.7122"
+           x="246.97464"
            id="tspan2987"
            sodipodi:role="line">0</tspan></text>
       <text
          xml:space="preserve"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
-         x="276.97464"
-         y="191.7122"
+         x="306.97464"
+         y="197.7122"
          id="text2989"
          sodipodi:linespacing="125%"><tspan
            sodipodi:role="line"
            id="tspan2991"
-           x="276.97464"
-           y="191.7122">1</tspan></text>
+           x="306.97464"
+           y="197.7122">1</tspan></text>
       <text
          sodipodi:linespacing="125%"
          id="text2993"
-         y="191.7122"
-         x="336.97464"
+         y="197.7122"
+         x="366.97464"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
          xml:space="preserve"><tspan
-           y="191.7122"
-           x="336.97464"
+           y="197.7122"
+           x="366.97464"
            id="tspan2995"
            sodipodi:role="line">2</tspan></text>
       <text
          xml:space="preserve"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
-         x="396.97464"
-         y="191.7122"
+         x="426.97464"
+         y="197.7122"
          id="text2997"
          sodipodi:linespacing="125%"><tspan
            sodipodi:role="line"
            id="tspan2999"
-           x="396.97464"
-           y="191.7122">3</tspan></text>
+           x="426.97464"
+           y="197.7122">3</tspan></text>
       <text
          sodipodi:linespacing="125%"
          id="text3001"
-         y="191.7122"
-         x="456.97464"
+         y="197.7122"
+         x="486.97464"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
          xml:space="preserve"><tspan
-           y="191.7122"
-           x="456.97464"
+           y="197.7122"
+           x="486.97464"
            id="tspan3003"
            sodipodi:role="line">4</tspan></text>
       <text
          xml:space="preserve"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
-         x="516.97461"
-         y="191.7122"
+         x="546.97461"
+         y="197.7122"
          id="text3005"
          sodipodi:linespacing="125%"><tspan
            sodipodi:role="line"
            id="tspan3007"
-           x="516.97461"
-           y="191.7122">5</tspan></text>
-      <text
-         sodipodi:linespacing="125%"
-         id="text3009"
-         y="191.7122"
-         x="576.97461"
-         style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
-         xml:space="preserve"><tspan
-           y="191.7122"
-           x="576.97461"
-           id="tspan3011"
-           sodipodi:role="line">6</tspan></text>
+           x="546.97461"
+           y="197.7122">5</tspan></text>
     </g>
     <g
-       id="g4689"
-       style="fill:#008000">
+       id="g3869">
       <text
          sodipodi:linespacing="125%"
          id="text3013"
-         y="136.15382"
-         x="126.7919"
+         y="142.15382"
+         x="146.7919"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
          xml:space="preserve"><tspan
-           y="136.15382"
-           x="126.7919"
+           y="142.15382"
+           x="146.7919"
            id="tspan3015"
            sodipodi:role="line">0</tspan></text>
       <text
          xml:space="preserve"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
-         x="166.7919"
-         y="136.15382"
+         x="186.7919"
+         y="142.15382"
          id="text3017"
          sodipodi:linespacing="125%"><tspan
            sodipodi:role="line"
            id="tspan3019"
-           x="166.7919"
-           y="136.15382">1</tspan></text>
+           x="186.7919"
+           y="142.15382">1</tspan></text>
       <text
          sodipodi:linespacing="125%"
          id="text3021"
-         y="136.15382"
-         x="206.7919"
+         y="142.15382"
+         x="226.7919"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
          xml:space="preserve"><tspan
-           y="136.15382"
-           x="206.7919"
+           y="142.15382"
+           x="226.7919"
            id="tspan3023"
            sodipodi:role="line">2</tspan></text>
       <text
          xml:space="preserve"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
-         x="246.7919"
-         y="136.15382"
+         x="266.7919"
+         y="142.15382"
          id="text3025"
          sodipodi:linespacing="125%"><tspan
            sodipodi:role="line"
            id="tspan3027"
-           x="246.7919"
-           y="136.15382">3</tspan></text>
+           x="266.7919"
+           y="142.15382">3</tspan></text>
       <text
          sodipodi:linespacing="125%"
          id="text3029"
-         y="136.15382"
-         x="286.7919"
+         y="142.15382"
+         x="306.7919"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
          xml:space="preserve"><tspan
-           y="136.15382"
-           x="286.7919"
+           y="142.15382"
+           x="306.7919"
            id="tspan3031"
            sodipodi:role="line">4</tspan></text>
       <text
          xml:space="preserve"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
-         x="326.7919"
-         y="136.15382"
+         x="346.7919"
+         y="142.15382"
          id="text3033"
          sodipodi:linespacing="125%"><tspan
            sodipodi:role="line"
            id="tspan3035"
-           x="326.7919"
-           y="136.15382">5</tspan></text>
+           x="346.7919"
+           y="142.15382">5</tspan></text>
       <text
          sodipodi:linespacing="125%"
          id="text3037"
-         y="136.15382"
-         x="366.7919"
+         y="142.15382"
+         x="386.7919"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
          xml:space="preserve"><tspan
-           y="136.15382"
-           x="366.7919"
+           y="142.15382"
+           x="386.7919"
            id="tspan3039"
            sodipodi:role="line">6</tspan></text>
       <text
          xml:space="preserve"
          style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
-         x="406.7919"
-         y="136.15382"
+         x="426.7919"
+         y="142.15382"
          id="text3041"
          sodipodi:linespacing="125%"><tspan
            sodipodi:role="line"
            id="tspan3043"
-           x="406.7919"
-           y="136.15382">7</tspan></text>
-      <text
-         xml:space="preserve"
-         style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#008000;fill-opacity:1;stroke:none;font-family:TeX Gyre Heros;-inkscape-font-specification:TeX Gyre Heros"
-         x="446.7919"
-         y="136.15382"
-         id="text3049"
-         sodipodi:linespacing="125%"><tspan
-           sodipodi:role="line"
-           id="tspan3051"
-           x="446.7919"
-           y="136.15382">8</tspan></text>
+           x="426.7919"
+           y="142.15382">7</tspan></text>
     </g>
     <g
        id="g4746">
@@ -737,7 +714,8 @@
              id="tspan4687">End</tspan></tspan></text>
     </g>
     <g
-       id="g5152">
+       id="g5152"
+       transform="translate(-6,0)">
       <path
          sodipodi:nodetypes="cscsc"
          inkscape:connector-curvature="0"
@@ -762,32 +740,36 @@
    id="tspan5150">PostZeroes </tspan>= 0</tspan></text>
     </g>
     <g
-       id="g5105">
+       id="g3945">
       <path
          inkscape:connector-curvature="0"
          id="path5067"
-         d="m 251.42646,136.15383 0,136.26037 8.58629,0"
+         d="m 271.42646,136.15383 0,136.26037 8.58629,0"
          style="fill:none;stroke:#000000;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:1, 1.99999999;stroke-dashoffset:0;marker-end:none"
          sodipodi:nodetypes="ccc" />
       <text
          xml:space="preserve"
-         x="248.57143"
+         x="268.57141"
          y="285.93359"
          id="text5069"><tspan
-           id="tspan5088"
+           id="tspan3899"
            sodipodi:role="line"
-           x="248.57143"
+           x="268.57141"
            y="285.93359"><tspan
    style="font-style:italic;baseline-shift:baseline;-inkscape-font-specification:TeX Gyre Heros Italic"
    id="tspan5073">t</tspan><tspan
    style="font-size:65.00091553%;baseline-shift:sub"
    id="tspan5075">Start </tspan>+ <tspan
    id="tspan5103"
-   style="font-style:italic;-inkscape-font-specification:Sans Italic">h</tspan> ⋅ <tspan
+   style="font-style:italic;-inkscape-font-specification:Sans Italic">h</tspan> ⋅ (<tspan
    id="tspan5093"
    style="font-style:italic;-inkscape-font-specification:Sans Italic">n</tspan><tspan
    id="tspan5095"
-   style="font-size:65.00091553%;baseline-shift:sub">PreZeroes </tspan></tspan></text>
+   style="font-size:65.00091553%;baseline-shift:sub">PreZeroes</tspan>+<tspan
+   id="tspan3919"
+   style="font-size:65.00091553%;baseline-shift:super">1</tspan>⁄<tspan
+   id="tspan3921"
+   style="font-size:65.00091553%;baseline-shift:sub">2</tspan>)</tspan></text>
     </g>
     <g
        id="g5135">
@@ -813,7 +795,7 @@
    id="tspan5129">nonZero</tspan></tspan></text>
     </g>
     <g
-       transform="translate(0.136788,1.024231)"
+       transform="translate(20.136788,1.024231)"
        id="g5115">
       <path
          sodipodi:nodetypes="cscsc"

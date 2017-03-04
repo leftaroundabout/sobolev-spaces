@@ -59,6 +59,11 @@ data HomogenSampled v = HomogenSampled {
        _homogenSampledRange :: (HIndex v, HIndex v)
      , _values :: UArr.Vector v      -- ^ Starts and ends with a zero, which is not
                                      --   considered as part of the covered range.
+                                     --   Index position 0 is mid between this
+                                     --   “ghost cell” and the first value cell.
+                                     --   Each value thus represents one /interval/
+                                     --   of size ℓ/𝑛, where 𝑛+2 is the length of
+                                     --   the values array
      , _derivatives :: UArr.Vector v -- ^ Corresponds to function as sampled on [0,1].
                                      --   This is also zero-bounded.
      } deriving (Show)
@@ -72,13 +77,16 @@ homogenSampled range vs | n > 1
                                       in (vn - vp)/(2*h) )
                              vs
        n = Arr.length vs
-       h = 1 / (fromIntegral n-1)
+       h = 1 / fromIntegral n
        bvs = Arr.cons 0 $ Arr.snoc vs 0
 
+unitHomogenSampled :: (Fractional v, UArr.Storable v)
+                      => UArr.Vector v -> HomogenSampled v
+unitHomogenSampled = homogenSampled (0,1)
 
 homogenSampledInformation :: (RealFrac v, UArr.Storable v) => HomogenSampled v -> Int
 homogenSampledInformation (HomogenSampled (start,end) vs _) = ceiling $ l * ν
- where ν = fromIntegral $ Arr.length vs - 3
+ where ν = fromIntegral $ Arr.length vs - 2
        l = end - start
 
 class DynamicDimension a where
@@ -112,29 +120,29 @@ resampleHomogen (HomogenSampled (start₀, end₀) vs dvs) (start', end') n
                                                      , ((start', end'), n) )
  where -- see
        -- https://raw.githubusercontent.com/leftaroundabout/sobolev-spaces/master/derivation/interpolation-alignment.svg
-       [nPreZeroes, nPostZeroes] = max 0 . min (n+1) . ceiling
-                              <$> [(-start-hOld) / h, (end-1-hOld) / h]
+       [nPreZeroes, nPostZeroes] = max 0 . min (n+1) . round
+                              <$> [(-start-hOld/2) / h, (end-1-hOld/2) / h]
        [preZeroes, postZeroes] = (`Arr.replicate`0) . (+1) <$> [nPreZeroes, nPostZeroes]
        nNonzero = n - nPreZeroes - nPostZeroes
-       h = l / (fromIntegral n - 1)
+       h = l / fromIntegral n
        ts = Arr.generate nNonzero $
-              \j -> start + h * fromIntegral (nPreZeroes + j)
-       vals = Arr.map (\t -> let jp = max 0 . min nOld . ceiling $ t/hOld
+              \j -> start + h * (fromIntegral (nPreZeroes + j) + 1/2)
+       vals = Arr.map (\t -> let jp = max 0 . min nOld . round $ t/hOld
                                  y₀ = vs Arr.! jp; y₁ = vs Arr.! (jp+1)
                                  ð₀ = (dvs Arr.! jp)*hOld; ð₁ = (dvs Arr.! (jp+1))*hOld
-                                 ξ = t / hOld - fromIntegral (jp-1)
+                                 ξ = t / hOld - fromIntegral (jp-1) - 1/2
                              in y₀
                                 + ξ * (ð₀
                                       + ξ * (3*(y₁ - y₀) - 2*ð₀ - ð₁
                                             + ξ * (ð₁ + ð₀ + 2*(y₀ - y₁))))
                       ) ts
-       derivs = Arr.map (\t -> let jp = max 0 . min nOld . ceiling $ t/hOld
+       derivs = Arr.map (\t -> let jp = max 0 . min nOld . round $ t/hOld
                                    ð₀ = (dvs Arr.! jp)*hOld; ð₁ = (dvs Arr.! (jp+1))*hOld
                                    ξ = t / hOld - fromIntegral (jp-1)
                                in (ð₀ + ξ*(ð₁-ð₀)) / h
                         ) ts
        nOld = Arr.length vs - 2
-       hOld = 1 / (fromIntegral nOld - 1)
+       hOld = 1 / fromIntegral nOld
        l = end - start
        start = start₀ + l₀ * start'
        end = start₀ + l₀ * end'
@@ -245,17 +253,17 @@ toUniformSampledLike :: UABSample c
 toUniformSampledLike range@(HomogenSampled (start,end) vs _)
                         (UnitL2 μLr _ quantisedLr _ subchunks)
              = Arr.slice 1 n result
- where nRef = Arr.length vs - 3
+ where nRef = Arr.length vs - 2
        ℓ = end - start
-       hRef = 1 / fromIntegral nRef
+       hRef = 1 / (fromIntegral nRef - 1)
        h = 1 / fromIntegral n
        t₀Ref = - start / ℓ
-       i₀ = ceiling $ start / hRef
-       iEnd = ceiling $ end / hRef
+       i₀ = floor $ start / hRef
+       iEnd = floor $ end / hRef
        t₀ = t₀Ref + fromIntegral i₀ * h
        tEnd = t₀Ref + fromIntegral iEnd * h
        n = iEnd - i₀
-       backTransformed = homogenSampled (0,1) . fourierTrafo
+       backTransformed = unitHomogenSampled . fourierTrafo
                          $ Arr.map ((*realToFrac μLr) . fromIntegralℂ) quantisedLr
        HomogenSampled _ resultLr' _ = resampleHomogen backTransformed (t₀,tEnd) n
        result, resultLr, subResult :: UArr.Vector Double
@@ -267,7 +275,7 @@ toUniformSampledLike range@(HomogenSampled (start,end) vs _)
                      (subdivideHomogenSampled nSubDivs range) subchunks
 
 toUniformSampled :: UABSample c => Int -> UnitL2 c Double -> UArr.Vector Double
-toUniformSampled n = toUniformSampledLike . homogenSampled (0,1) $ UArr.replicate (n+1) 0
+toUniformSampled n = toUniformSampledLike . unitHomogenSampled $ UArr.replicate (n+1) 0
 
 fromUniformSampled :: ∀ c . UABSample c
         => SigSampleConfig
@@ -286,7 +294,7 @@ residualLayers cfg@(SigSampleConfig _ _ _ lrBandwidth _) allYs modChunks
  where longrange = fold $ Arr.zipWith toUniformSampledLike
               (subdivideHomogenSampled (Arr.length modChunks) lowpassed)
               (onlyLongrange <$> modChunks)
-       lowpassed = homogenSampled (0,1) (simpleIIRLowpass lrBandwidth allYs)
+       lowpassed = unitHomogenSampled (simpleIIRLowpass lrBandwidth allYs)
        topResidual = Arr.zipWith (-) allYs longrange
        subchunks = modChunks >>= unitL2Subdivisions
 

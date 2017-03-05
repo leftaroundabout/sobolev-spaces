@@ -323,15 +323,18 @@ chunkFromUniform cfg@(SigSampleConfig nChunkMax
                / maxAllowedVal
        powerSpectrumLr = simpleIIRHighpass (fromIntegral nTot / subdivFreq)
                                 $ Arr.map abs²ℂ transformedLr
+       subdivideFurther :: Bool
+       subdivideFurther = nTot > max (3*nSubDivs) localInfo
        quantisedLr :: UArr.Vector (Complex c)
        quantisedLr = Arr.map (roundℂ . (/realToFrac μLr))
-            $ filterFirstNPositivesOf powerSpectrumLr transformedLr
+            $ if subdivideFurther
+               then filterFirstNPositivesOf powerSpectrumLr transformedLr
+               else transformedLr
        subResiduals = transposeV
                $ map (subdivideHomogenSampled nSubDivs) residuals
        subchunks
-        | nTot < max (3*nSubDivs) localInfo
-                     = Arr.empty
-        | otherwise  = Arr.map (chunkFromUniform cfg) subResiduals
+        | subdivideFurther  = Arr.map (chunkFromUniform cfg) subResiduals
+        | otherwise         = Arr.empty
        maxAllowedVal = fromIntegral (maxBound :: c) / 8
        nTot = dynDimension lowpassed
        nSingleChunk = fromIntegral nTot / subdivFreq

@@ -110,8 +110,8 @@ subdivideHomogenSampled n (HomogenSampled (start,end) vs dvs)
 type HIndex v = v
 
 resampleHomogen :: (RealFrac v, UArr.Storable v, Show v)
-            => HomogenSampled v -> (HIndex v, HIndex v) -> Int -> HomogenSampled v
-resampleHomogen (HomogenSampled (start₀, end₀) vs dvs) (start', end') n
+            => (HIndex v, HIndex v) -> Int -> HomogenSampled v -> HomogenSampled v
+resampleHomogen (start', end') n (HomogenSampled (start₀, end₀) vs dvs)
      | end > start, n > 0, nOld > 0
           = HomogenSampled (0,1)
                            (preZeroes<>vals<>postZeroes)
@@ -147,7 +147,7 @@ resampleHomogen (HomogenSampled (start₀, end₀) vs dvs) (start', end') n
        end = start₀ + l₀ * end'
        l₀ = end₀ - start₀
 
-{-# SPECIALISE resampleHomogen :: HomogenSampled Double -> (Double, Double) -> Int -> HomogenSampled Double #-}
+{-# SPECIALISE resampleHomogen :: (Double, Double) -> Int -> HomogenSampled Double -> HomogenSampled Double #-}
 
       
 -- | Efficient only when partially applied to data array
@@ -188,9 +188,9 @@ cubicResample :: Arr.Vector v Double => Int -> v Double -> v Double
 cubicResample n ys = Arr.generate n $ \i -> spline $ fromIntegral (i+1) / fromIntegral (n+1)
  where spline = lfCubicSplineEval $ Arr.convert ys
 
-fourierTrafo :: UArr.Vector (Complex Double) -> UArr.Vector Double
+fourierTrafo :: UArr.Vector (Complex Double) -> HomogenSampled Double
 fourierTrafo = prepareTrafos 2 FFT.dft $ prepare &&& untwirl
- where untwirl n' = Arr.zipWith (\μ -> realPart . (μ*)) μs
+ where untwirl n' = homogenSampled (0,1) . Arr.zipWith (\μ -> realPart . (μ*)) μs
         where μs = Arr.generate n' $ \j -> let t = (1-n)/n + 2*fromIntegral j/n
                                            in cis $ -pi * t/2
               n = fromIntegral n'
@@ -198,10 +198,12 @@ fourierTrafo = prepareTrafos 2 FFT.dft $ prepare &&& untwirl
         where ηs = Arr.generate n' $ \k -> cis (-pi*fromIntegral k*(1-n)/n)
               n = fromIntegral n'
 
-invFourierTrafo :: UArr.Vector Double -> UArr.Vector (Complex Double)
+invFourierTrafo :: HomogenSampled Double -> UArr.Vector (Complex Double)
 invFourierTrafo = prepareTrafos 1 FFT.idft
-                    $ \n -> (pretwirl n . cubicResample n, postwirl n)
- where pretwirl n' = Arr.zipWith (\(rμ:+iμ) z -> rμ*z :+ iμ*z) μs
+                    $ \n -> (pretwirl n . resampleHomogen (0,1) n, postwirl n)
+ where pretwirl n' (HomogenSampled (0,1) vs _)
+                 = Arr.zipWith (\(rμ:+iμ) z -> rμ*z :+ iμ*z) μs
+                     $ Arr.slice 1 n' vs
         where μs = Arr.generate n' $ \j -> let t = (1-n)/n + 2*fromIntegral j/n
                                            in cis $ pi * t/2
               n = fromIntegral n'
@@ -227,7 +229,7 @@ prepareTrafos sizeFactor transform env = \αs
 
 
 data SigSampleConfig = SigSampleConfig {
-      _maxFFTSize :: Int
+      _maxFFTSize :: Int  -- ^ Not considered at the moment; max FFT is always 1024. 
     , _infoPerStage :: Int
     , _maxLocalInfo :: Int
     , _longrangeBandwidth :: Double
@@ -263,9 +265,9 @@ toUniformSampledLike range@(HomogenSampled (start,end) vs _)
        t₀ = t₀Ref + fromIntegral nBefore * h
        tEnd = t₀Ref + fromIntegral iEnd * h
        n = iEnd - nBefore
-       backTransformed = unitHomogenSampled . fourierTrafo
+       backTransformed = fourierTrafo
                          $ Arr.map ((*realToFrac μLr) . fromIntegralℂ) quantisedLr
-       HomogenSampled _ resultLr' _ = resampleHomogen backTransformed (t₀,tEnd) n
+       HomogenSampled _ resultLr' _ = resampleHomogen (t₀,tEnd) n backTransformed
        result, resultLr, subResult :: UArr.Vector Double
        resultLr = Arr.slice 1 n resultLr'
        result = Arr.zipWith (+) resultLr (subResult
@@ -313,8 +315,7 @@ chunkFromUniform cfg@(SigSampleConfig nChunkMax
             = UnitL2 μLr (round $ maxNegAmplitudeLr/μLr, round $ maxPosAmplitudeLr/μLr)
                   quantisedLr OutlappingDFT
                   subchunks
- where HomogenSampled _ loRes _ = resampleHomogen lowpassed (0,1) nChunkMax
-       transformedLr = invFourierTrafo loRes
+ where transformedLr = invFourierTrafo lowpassed
        maxPosAmplitudeLr = Arr.foldl' maxℂ 0 transformedLr
        maxNegAmplitudeLr = Arr.foldl' minℂ 0 transformedLr
        μLr = maximum [maxPosAmplitudeLr, -maxNegAmplitudeLr, noiseLvl]
@@ -337,7 +338,7 @@ chunkFromUniform cfg@(SigSampleConfig nChunkMax
        filterFirstNPositivesOf :: (Num n, UArr.Storable n) => UArr.Vector Double
                                    -> UArr.Vector n -> UArr.Vector n
        filterFirstNPositivesOf spect d = (`Arr.unfoldr`(0,infoPerStage))
-           $ \(i,capacity) -> if capacity>0 && i<nTot
+           $ \(i,capacity) -> if capacity>0 && i<Arr.length d
                                then Just $ if spect!i > 0
                                             then (d!i, (i+1, capacity-1))
                                             else (0, (i+1, capacity))

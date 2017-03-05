@@ -190,7 +190,7 @@ cubicResample n ys = Arr.generate n $ \i -> spline $ fromIntegral (i+1) / fromIn
 
 fourierTrafo :: UArr.Vector (Complex Double) -> HomogenSampled Double
 fourierTrafo = prepareTrafos 2 FFT.dft $ prepare &&& untwirl
- where untwirl n' = homogenSampled (0,1) . Arr.zipWith (\μ -> realPart . (μ*)) μs
+ where untwirl n' = homogenSampled (0.25, 0.75) . Arr.zipWith (\μ -> realPart . (μ*)) μs
         where μs = Arr.generate n' $ \j -> let t = (1-n)/n + 2*fromIntegral j/n
                                            in cis $ -pi * t/2
               n = fromIntegral n'
@@ -199,8 +199,8 @@ fourierTrafo = prepareTrafos 2 FFT.dft $ prepare &&& untwirl
               n = fromIntegral n'
 
 invFourierTrafo :: HomogenSampled Double -> UArr.Vector (Complex Double)
-invFourierTrafo = prepareTrafos 1 FFT.idft
-                    $ \n -> (pretwirl n . resampleHomogen (0,1) n, postwirl n)
+invFourierTrafo = prepareTrafos 2 FFT.idft
+                    $ \n -> (pretwirl n . resampleHomogen (-0.5, 1.5) n, postwirl n)
  where pretwirl n' (HomogenSampled (0,1) vs _)
                  = Arr.zipWith (\(rμ:+iμ) z -> rμ*z :+ iμ*z) μs
                      $ Arr.slice 1 n' vs
@@ -216,10 +216,11 @@ prepareTrafos :: (UArr.Storable a, UArr.Storable b, DynamicDimension c)
                      -> (Int -> (c -> UArr.Vector a, UArr.Vector b -> r))
                      -> c -> r
 prepareTrafos sizeFactor transform env = \αs
-   -> let nmin = dynDimension αs * sizeFactor
-      in case Map.lookupGE nmin plans of
+  -> let lookupTrafo nmin = case Map.lookupGE nmin plans of
           Just (n,(plan,(preproc,postproc)))
               -> postproc . FFT.execute plan $ preproc αs
+          Nothing -> lookupTrafo $ (nmin*2)`div`3
+     in lookupTrafo $ dynDimension αs * sizeFactor
  where plans = Map.fromList [ (n, (FFT.plan transform n, env n))
                             | p <- [3..10]
                             , υ <- [1,0]

@@ -112,12 +112,11 @@ type HIndex v = v
 resampleHomogen :: (RealFrac v, UArr.Storable v, Show v)
             => HomogenSampled v -> (HIndex v, HIndex v) -> Int -> HomogenSampled v
 resampleHomogen (HomogenSampled (start₀, end₀) vs dvs) (start', end') n
-     | end > start, n > 1, nOld > 1
+     | end > start, n > 0, nOld > 0
           = HomogenSampled (0,1)
                            (preZeroes<>vals<>postZeroes)
                            (preZeroes<>derivs<>postZeroes)
-     | otherwise  = error $ "resampleHomogen "++show ( ((start₀,end₀),nOld)
-                                                     , ((start', end'), n) )
+     | otherwise  = HomogenSampled (0,1) (Arr.replicate 2 0) (Arr.replicate 2 0)
  where -- see
        -- https://raw.githubusercontent.com/leftaroundabout/sobolev-spaces/master/derivation/interpolation-alignment.svg
        [nPreZeroes, nPostZeroes] = max 0 . min (n+1) . round
@@ -251,23 +250,24 @@ simpleIIRHighpass ω ys = Arr.zipWith (-) ys $ simpleIIRLowpass ω ys
 toUniformSampledLike :: UABSample c
            => HomogenSampled Double -> UnitL2 c Double -> UArr.Vector Double
 toUniformSampledLike range@(HomogenSampled (start,end) vs _)
-                        (UnitL2 μLr _ quantisedLr _ subchunks)
-             = Arr.slice 1 n result
- where nRef = Arr.length vs - 2
+                        (UnitL2 μLr _ quantisedLr _ subchunks) = result
+ where -- see
+       -- https://raw.githubusercontent.com/leftaroundabout/sobolev-spaces/master/derivation/sampling-alignment.svg
+       nRef = Arr.length vs - 2
        ℓ = end - start
-       hRef = 1 / (fromIntegral nRef - 1)
-       h = 1 / fromIntegral n
+       hRef = 1 / fromIntegral nRef
+       h = hRef / ℓ
        t₀Ref = - start / ℓ
-       i₀ = floor $ start / hRef
-       iEnd = floor $ end / hRef
-       t₀ = t₀Ref + fromIntegral i₀ * h
+       nBefore = round $ start / hRef
+       iEnd = round $ end / hRef
+       t₀ = t₀Ref + fromIntegral nBefore * h
        tEnd = t₀Ref + fromIntegral iEnd * h
-       n = iEnd - i₀
+       n = iEnd - nBefore
        backTransformed = unitHomogenSampled . fourierTrafo
                          $ Arr.map ((*realToFrac μLr) . fromIntegralℂ) quantisedLr
        HomogenSampled _ resultLr' _ = resampleHomogen backTransformed (t₀,tEnd) n
        result, resultLr, subResult :: UArr.Vector Double
-       resultLr = Arr.slice 1 (n-1) resultLr'
+       resultLr = Arr.slice 1 n resultLr'
        result = Arr.zipWith (+) resultLr (subResult
                              <> Arr.replicate (Arr.length resultLr
                                                     - Arr.length subResult) 0)
@@ -275,7 +275,7 @@ toUniformSampledLike range@(HomogenSampled (start,end) vs _)
                      (subdivideHomogenSampled nSubDivs range) subchunks
 
 toUniformSampled :: UABSample c => Int -> UnitL2 c Double -> UArr.Vector Double
-toUniformSampled n = toUniformSampledLike . unitHomogenSampled $ UArr.replicate (n+1) 0
+toUniformSampled n = toUniformSampledLike . unitHomogenSampled $ UArr.replicate n 0
 
 fromUniformSampled :: ∀ c . UABSample c
         => SigSampleConfig

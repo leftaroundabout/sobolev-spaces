@@ -34,6 +34,7 @@ import Data.Monoid ((<>))
 import Data.Complex
 
 import Data.Foldable (fold)
+import Data.Default
 
 nSubDivs :: Int
 nSubDivs = 8
@@ -195,10 +196,12 @@ prepareTrafos sizeFactor transform env = \αs
           Nothing -> lookupTrafo $ (nmin*2)`div`3
      in lookupTrafo $ dynDimension αs * sizeFactor
  where plans = Map.fromList [ (n, env n $ FFT.plan transform n)
-                            | p <- [3..10]
+                            | p <- [3 .. ceiling . logBase 2 $ fromIntegral hardMaxFFTsize]
                             , υ <- [1,0]
                             , let n = 2^p - υ*2^(p-2) -- [6,8,12,16,24,32,48.. 1024]
                             ]
+hardMaxFFTsize :: Int
+hardMaxFFTsize = 1024
 
 
 
@@ -209,6 +212,8 @@ data SigSampleConfig = SigSampleConfig {
     , _longrangeBandwidth :: Double
     , _noiseFloorLevel :: Double
     }
+instance Default SigSampleConfig where
+  def = SigSampleConfig hardMaxFFTsize 16 32 40 1e-8
 
 -- | A phase-constant second-order filter, using one first-order pass
 --   in each direction.
@@ -224,8 +229,10 @@ simpleIIRLowpass ω ys = Arr.postscanr' (\y carry -> (1-η)*carry + η*y) 0
 simpleIIRHighpass ω ys = Arr.zipWith (-) ys $ simpleIIRLowpass ω ys
 
 toUniformSampledLike :: UABSample c
-           => HomogenSampled Double -> UnitL2 c Double -> UArr.Vector Double
-toUniformSampledLike range@(HomogenSampled (start,end) vs _)
+           => SigSampleConfig
+            -> HomogenSampled Double -> UnitL2 c Double -> UArr.Vector Double
+toUniformSampledLike cfg@SigSampleConfig{_maxFFTSize=maxFFT}
+                     range@(HomogenSampled (start,end) vs _)
                         (UnitL2 μLr _ quantisedLr _ subchunks) = result
  where -- see
        -- https://raw.githubusercontent.com/leftaroundabout/sobolev-spaces/master/derivation/sampling-alignment.svg
@@ -241,17 +248,21 @@ toUniformSampledLike range@(HomogenSampled (start,end) vs _)
        n = iEnd - nBefore
        backTransformed = fourierTrafo
                          $ Arr.map ((*realToFrac μLr) . fromIntegralℂ) quantisedLr
+                          Arr.++ Arr.replicate (min maxFFT (n`div`4)
+                                                   - Arr.length quantisedLr) 0
        HomogenSampled _ resultLr' _ = resampleHomogen (t₀,tEnd) n backTransformed
        result, resultLr, subResult :: UArr.Vector Double
        resultLr = Arr.slice 1 n resultLr'
        result = Arr.zipWith (+) resultLr (subResult
                              <> Arr.replicate (Arr.length resultLr
                                                     - Arr.length subResult) 0)
-       subResult = fold $ Arr.zipWith toUniformSampledLike
+       subResult = fold $ Arr.zipWith (toUniformSampledLike cfg)
                      (subdivideHomogenSampled nSubDivs range) subchunks
 
 toUniformSampled :: UABSample c => Int -> UnitL2 c Double -> UArr.Vector Double
-toUniformSampled n = toUniformSampledLike . unitHomogenSampled $ UArr.replicate n 0
+toUniformSampled n = toUniformSampledLike
+                      def {_maxFFTSize=hardMaxFFTsize}
+                     . unitHomogenSampled $ UArr.replicate n 0
 
 fromUniformSampled :: ∀ c . UABSample c
         => SigSampleConfig
@@ -269,7 +280,7 @@ residualLayers cfg@(SigSampleConfig _ _ _ lrBandwidth _) allYs modChunks
        = lowpassed : residualLayers
                         cfg{_longrangeBandwidth=lrBandwidth*fromIntegral nSubDivs}
                         topResidual subchunks
- where longrange = fold $ Arr.zipWith toUniformSampledLike
+ where longrange = fold $ Arr.zipWith (toUniformSampledLike cfg)
               (subdivideHomogenSampled (Arr.length modChunks) lowpassed)
               (onlyLongrange <$> modChunks)
        lowpassed = unitHomogenSampled (simpleIIRLowpass lrBandwidth allYs)

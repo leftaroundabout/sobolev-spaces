@@ -189,39 +189,39 @@ cubicResample n ys = Arr.generate n $ \i -> spline $ fromIntegral (i+1) / fromIn
  where spline = lfCubicSplineEval $ Arr.convert ys
 
 fourierTrafo :: UArr.Vector (Complex Double) -> HomogenSampled Double
-fourierTrafo = prepareTrafos 2 FFT.dft $ prepare &&& untwirl
- where untwirl n' = homogenSampled (0.25, 0.75) . Arr.zipWith (\μ -> realPart . (μ*)) μs
+fourierTrafo = prepareTrafos 2 FFT.dft process
+ where process n' fft = homogenSampled (0.25, 0.75)
+                      . Arr.zipWith (\μ -> realPart . (μ*)) μs
+                      . FFT.execute fft
+                      . \αs -> Arr.zipWith (*) ηs αs <> Arr.replicate (n' - Arr.length αs) 0
         where μs = Arr.generate n' $ \j -> let t = (1-n)/n + 2*fromIntegral j/n
                                            in cis $ -pi * t/2
-              n = fromIntegral n'
-       prepare n' = \αs -> Arr.zipWith (*) ηs αs <> Arr.replicate (n' - Arr.length αs) 0
-        where ηs = Arr.generate n' $ \k -> cis (-pi*fromIntegral k*(1-n)/n)
+              ηs = Arr.generate n' $ \k -> cis (-pi*fromIntegral k*(1-n)/n)
               n = fromIntegral n'
 
 invFourierTrafo :: HomogenSampled Double -> UArr.Vector (Complex Double)
-invFourierTrafo = prepareTrafos 2 FFT.idft
-                    $ \n -> (pretwirl n . resampleHomogen (-0.5, 1.5) n, postwirl n)
- where pretwirl n' (HomogenSampled (0,1) vs _)
-                 = Arr.zipWith (\(rμ:+iμ) z -> rμ*z :+ iμ*z) μs
-                     $ Arr.slice 1 n' vs
+invFourierTrafo = prepareTrafos 2 FFT.idft process
+ where process n' ift = Arr.zipWith (*) ηs
+                      . FFT.execute ift
+                      . (\(HomogenSampled (0,1) vs _)
+                        -> Arr.zipWith (\(rμ:+iμ) z -> rμ*z :+ iμ*z) μs
+                            $ Arr.slice 1 n' vs )
+                      . resampleHomogen (-0.5, 1.5) n'
         where μs = Arr.generate n' $ \j -> let t = (1-n)/n + 2*fromIntegral j/n
                                            in cis $ pi * t/2
-              n = fromIntegral n'
-       postwirl n' = Arr.zipWith (*) ηs
-        where ηs = Arr.generate (n'`div`2) $ \k -> 2 * cis (pi*fromIntegral k*(1-n)/n)
+              ηs = Arr.generate (n'`div`2) $ \k -> 2 * cis (pi*fromIntegral k*(1-n)/n)
               n = fromIntegral n'
 
 prepareTrafos :: (UArr.Storable a, UArr.Storable b, DynamicDimension c)
                     => Int -> FFT.Transform a b
-                     -> (Int -> (c -> UArr.Vector a, UArr.Vector b -> r))
+                     -> (Int -> FFT.Plan a b -> c -> r)
                      -> c -> r
 prepareTrafos sizeFactor transform env = \αs
   -> let lookupTrafo nmin = case Map.lookupGE nmin plans of
-          Just (n,(plan,(preproc,postproc)))
-              -> postproc . FFT.execute plan $ preproc αs
+          Just (_,f) -> f αs
           Nothing -> lookupTrafo $ (nmin*2)`div`3
      in lookupTrafo $ dynDimension αs * sizeFactor
- where plans = Map.fromList [ (n, (FFT.plan transform n, env n))
+ where plans = Map.fromList [ (n, env n $ FFT.plan transform n)
                             | p <- [3..10]
                             , υ <- [1,0]
                             , let n = 2^p - υ*2^(p-2) -- [6,8,12,16,24,32,48.. 1024]

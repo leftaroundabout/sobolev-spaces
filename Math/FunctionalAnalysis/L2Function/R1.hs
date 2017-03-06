@@ -177,7 +177,11 @@ invFourierTrafo = prepareTrafos 2 FFT.idft process
                             $ Arr.slice 1 n' vs )
                       . resampleHomogen (-0.5, 1.5) n'
         where μs = Arr.generate n' $ \j -> let t = (1-n)/n + 2*fromIntegral j/n
-                                           in cis $ pi * t/2
+                                           in mkPolar
+                                               (if t < -1/2 || t > 1/2
+                                                  then sin (pi*t)^2
+                                                  else 1)
+                                               (pi * t/2)
               ηs = Arr.generate (n'`div`2) $ \k -> 2 * cis (pi*fromIntegral k*(1-n)/n)
               n = fromIntegral n'
 

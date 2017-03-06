@@ -266,7 +266,9 @@ onlyLongrange f = f {unitL2Subdivisions = Arr.empty}
 residualLayers :: UABSample c => SigSampleConfig -> UArr.Vector Double
                       -> BArr.Vector (UnitL2 c Double) -> [HomogenSampled Double]
 residualLayers cfg@(SigSampleConfig _ _ _ lrBandwidth _) allYs modChunks
-       = lowpassed : residualLayers cfg topResidual subchunks
+       = lowpassed : residualLayers
+                        cfg{_longrangeBandwidth=lrBandwidth*fromIntegral nSubDivs}
+                        topResidual subchunks
  where longrange = fold $ Arr.zipWith toUniformSampledLike
               (subdivideHomogenSampled (Arr.length modChunks) lowpassed)
               (onlyLongrange <$> modChunks)

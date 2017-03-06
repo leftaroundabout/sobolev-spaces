@@ -150,53 +150,22 @@ resampleHomogen (start', end') n (HomogenSampled (start₀, end₀) vs dvs)
 {-# SPECIALISE resampleHomogen :: (Double, Double) -> Int -> HomogenSampled Double -> HomogenSampled Double #-}
 
       
--- | Efficient only when partially applied to data array
---   and then evaluated at multiple x-points 
-lfCubicSplineEval :: UArr.Vector Double -> Double -> Double
-lfCubicSplineEval ys
-  | n > 1      = lcse
-  | n < 1      = const 0
-  | otherwise  = \x
-     -> if x<0 || x>1 then 0
-                      else ys!0 * ((2*x-1)^2 - 1)^2
- where lcse x | i < 0      = 0
-              | i < 1      = ξ^2 * (3*y₁ - ð₁ + ξ*(ð₁ - 2*y₁))
-              | i < n      = y₀
-                           + ξ * (ð₀
-                                  + ξ * (3*(y₁ - y₀) - 2*ð₀ - ð₁
-                                         + ξ * (ð₁ + ð₀ + 2*(y₀ - y₁))))
-              | i == n     = (1-ξ)^2 * (3*y₀ + ð₀ + (1-ξ)*(-ð₀ - 2*y₀))
-              | otherwise  = 0
-        where hx = x / δx
-              i = floor hx
-              ξ = hx - fromIntegral i
-              y₀ = ys!(i-1)
-              y₁ = ys!i
-              ð₀ = 0.5 * δys!(i-1)
-              ð₁ = 0.5 * δys!i
-       δys = UArr.imap (\i _
-                  -> if i<1
-                      then ys!1
-                      else if i<n-1
-                            then ys!(i+1) - ys!(i-1)
-                            else -ys!(n-2)
-              ) ys
-       n = Arr.length ys
-       δx = 1 / fromIntegral (n+1)
-
-cubicResample :: Arr.Vector v Double => Int -> v Double -> v Double
-cubicResample n ys = Arr.generate n $ \i -> spline $ fromIntegral (i+1) / fromIntegral (n+1)
- where spline = lfCubicSplineEval $ Arr.convert ys
 
 fourierTrafo :: UArr.Vector (Complex Double) -> HomogenSampled Double
 fourierTrafo = prepareTrafos 2 FFT.dft process
- where process n' fft = homogenSampled (0.25, 0.75)
-                      . Arr.zipWith (\μ -> realPart . (μ*)) μs
-                      . FFT.execute fft
-                      . \αs -> Arr.zipWith (*) ηs αs <> Arr.replicate (n' - Arr.length αs) 0
+ where process n' fft = (\[vs,ðtvs] -> HomogenSampled (0.25, 0.75)
+                                        (Arr.cons 0 $ Arr.snoc vs 0)
+                                        (Arr.cons 0 $ Arr.snoc ðtvs 0) )
+                      . map (Arr.zipWith (\μ -> realPart . (μ*)) μs
+                              . FFT.execute fft)
+                      . \αs -> let hfZeroes = Arr.replicate (n' - Arr.length αs) 0
+                               in [ Arr.zipWith (*) ηs αs <> hfZeroes
+                                  , Arr.zipWith (*) ηs_ðt αs <> hfZeroes ]
         where μs = Arr.generate n' $ \j -> let t = (1-n)/n + 2*fromIntegral j/n
                                            in cis $ -pi * t/2
               ηs = Arr.generate n' $ \k -> cis (-pi*fromIntegral k*(1-n)/n)
+              ηs_ðt = Arr.generate n' $ \k -> pi * (fromIntegral k*2 + 1)
+                                               * cis (-pi/2 - pi*fromIntegral k*(1-n)/n)
               n = fromIntegral n'
 
 invFourierTrafo :: HomogenSampled Double -> UArr.Vector (Complex Double)

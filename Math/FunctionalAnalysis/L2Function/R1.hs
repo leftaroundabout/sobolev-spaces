@@ -267,7 +267,7 @@ toUniformSampledLike :: UABSample c
 toUniformSampledLike cfg@SigSampleConfig{_maxFFTSize=maxFFT}
                      range@(HomogenSampled (start,end) vs _)
                         (UnitL2 μLr _ quantisedLr _ subchunks)
-                            = QRHomogenSampled (1, Arr.length result - 1) result
+                            = QRHomogenSampled (nRampOn, n + nRampOn) result
  where -- see
        -- https://raw.githubusercontent.com/leftaroundabout/sobolev-spaces/master/derivation/sampling-alignment.svg
        nRef = Arr.length vs - 2
@@ -275,22 +275,35 @@ toUniformSampledLike cfg@SigSampleConfig{_maxFFTSize=maxFFT}
        hRef = 1 / fromIntegral nRef
        h = hRef / ℓ
        t₀Ref = - start / ℓ
-       nBefore = round $ start / hRef
+       preStart = start - ℓ/2
+       postEnd = end + ℓ/2
+       nBefore = round $ preStart / hRef
+       iStart = round $ start/hRef
+       nRampOn = iStart - nBefore
        iEnd = round $ end / hRef
+       iPostEnd = round $ postEnd / hRef
+       nRampOff = iPostEnd - iEnd
        t₀ = t₀Ref + fromIntegral nBefore * h
-       tEnd = t₀Ref + fromIntegral iEnd * h
-       n = iEnd - nBefore
+       tPostEnd = t₀Ref + fromIntegral iPostEnd * h
+       n = iEnd - iStart
+       nWithRamps = iPostEnd - nBefore
        backTransformed = fourierTrafo
                          $ Arr.map ((*realToFrac μLr) . fromIntegralℂ) quantisedLr
                           <> Arr.replicate (min maxFFT (n`div`4)
                                                    - Arr.length quantisedLr) 0
-       HomogenSampled _ resultLr _ = resampleHomogen (t₀,tEnd) n backTransformed
+       HomogenSampled _ resultLr' _
+                  = resampleHomogen (t₀,tPostEnd) nWithRamps backTransformed
        result, resultLr, subResult :: UArr.Vector Double
+       resultLr = Arr.slice 1 nWithRamps resultLr'
        result = Arr.zipWith (+) resultLr
-                  (subResult <> Arr.replicate (n + 2 - Arr.length subResult) 0)
-       QRHomogenSampled (1,_) subResult
+                  (pad subResRampOnExtra
+                    <> subResult
+                    <> pad (nWithRamps - Arr.length subResult - subResRampOnExtra))
+       subResRampOnExtra = max 0 $ nRampOn - subResStart
+       QRHomogenSampled (subResStart, subResEnd) subResult
            = concatHomogenSampled $ Arr.zipWith (toUniformSampledLike cfg)
                      (subdivideHomogenSampled nSubDivs range) subchunks
+       pad nZeroes = Arr.replicate nZeroes 0
 
 toUniformSampled :: UABSample c => Int -> UnitL2 c Double -> UArr.Vector Double
 toUniformSampled n = qrHomogenSampledInRange

@@ -40,7 +40,7 @@
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
      inkscape:zoom="1.979899"
-     inkscape:cx="363.60858"
+     inkscape:cx="364.61873"
      inkscape:cy="119.07496"
      inkscape:document-units="px"
      inkscape:current-layer="layer1"
@@ -62,7 +62,7 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title></dc:title>
+        <dc:title />
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -817,7 +817,7 @@
              style="font-size:65.00091553%;baseline-shift:sub">start</tspan></tspan></text>
     </g>
     <g
-       id="g6407">
+       id="g3203">
       <path
          style="fill:none;stroke:#000000;stroke-width:0.99999994px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
          d="m 172.41631,141.81374 c 0.48385,11.15866 54.65885,0.11762 57.17785,3.65964 3.47504,4.88632 2.82011,9.47234 2.82011,9.47234 0,0 -0.9677,-1.22158 2.41927,-8.24566 3.38699,-7.02409 52.74015,3.35934 52.74015,-4.27553"
@@ -835,9 +835,9 @@
            y="166.21931"
            x="226.85715"
            id="tspan6397"
-           sodipodi:role="line">n<tspan
+           sodipodi:role="line">i<tspan
    id="tspan6405"
-   style="font-size:65.00091553%;font-style:normal;baseline-shift:sub;-inkscape-font-specification:TeX Gyre Heros">Before</tspan></tspan></text>
+   style="font-size:65.00091553%;font-style:normal;baseline-shift:sub;-inkscape-font-specification:TeX Gyre Heros">Start</tspan></tspan></text>
     </g>
     <path
        style="fill:none;stroke:#000000;stroke-width:0.99999994px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"

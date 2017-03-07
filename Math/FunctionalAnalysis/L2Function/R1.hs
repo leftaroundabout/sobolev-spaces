@@ -196,7 +196,15 @@ fourierTrafo = prepareTrafos 2 FFT.dft process
                                in [ Arr.zipWith (*) ηs αs <> hfZeroes
                                   , Arr.zipWith (*) ηs_ðt αs <> hfZeroes ]
         where μs = Arr.generate n' $ \j -> let t = (1-n)/n + 2*fromIntegral j/n
-                                           in cis $ -pi * t/2
+                                           in mkPolar
+                                               (cos $ t*pi/2)
+                              -- Windowing both before and after transform fulfills
+                              -- the Princen-Bradley condition:
+                              -- cos (t*pi/2)^2 + cos ((t+1)*pi/2)^2
+                              --  = cos (t*pi/2)^2 + (-sin (t*pi/2))^2 = 1.
+                              -- The pre- and post transform windows together
+                              -- make up a Hann window.
+                                               (-pi * t/2)
               ηs = Arr.generate n' $ \k -> cis (-pi*fromIntegral k*(1-n)/n)
               ηs_ðt = Arr.generate n' $ \k -> pi * (fromIntegral k*2 + 1)
                                                * cis (-pi/2 - pi*fromIntegral k*(1-n)/n)
@@ -212,9 +220,7 @@ invFourierTrafo = prepareTrafos 2 FFT.idft process
                       . resampleHomogen (-0.5, 1.5) n'
         where μs = Arr.generate n' $ \j -> let t = (1-n)/n + 2*fromIntegral j/n
                                            in mkPolar
-                                               (if t < -1/2 || t > 1/2
-                                                  then sin (pi*t)^2
-                                                  else 1)
+                                               (cos $ t*pi/2)
                                                (pi * t/2)
               ηs = Arr.generate (n'`div`2) $ \k -> 2 * cis (pi*fromIntegral k*(1-n)/n)
               n = fromIntegral n'

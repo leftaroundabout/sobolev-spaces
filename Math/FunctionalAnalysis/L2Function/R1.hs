@@ -26,6 +26,7 @@ import qualified Data.Vector.Storable as UArr
 import qualified Data.Vector as BArr
 import Data.Vector.Generic ((!))
 import qualified Data.Vector.Generic as Arr
+import qualified Data.Vector.Generic.Mutable as MArr
 import qualified Numeric.FFT.Vector.Plan as FFT
 import qualified Numeric.FFT.Vector.Invertible as FFT
 
@@ -96,21 +97,24 @@ data QRHomogenSampled v = QRHomogenSampled {
      , _qrHomogenSampledVs :: UArr.Vector v
      }
 
-concatHomogenSampled :: (Foldable l, Fractional v, UArr.Storable v)
-             => l (QRHomogenSampled v) -> QRHomogenSampled v
+concatHomogenSampled :: (Fractional v, UArr.Storable v)
+             => BArr.Vector (QRHomogenSampled v) -> QRHomogenSampled v
 concatHomogenSampled blocks
-  | null blocks  = QRHomogenSampled (1,1) $ Arr.fromList [0,0,0]
-  | otherwise    = foldr1 consHS blocks
- where consHS (QRHomogenSampled (headStart,headEnd) headVs)
-              (QRHomogenSampled (otherStart,otherEnd) otherVs)
-         = QRHomogenSampled (headStart, otherEnd)
-                   $ Arr.take nHeadSolo headVs
-                           <> overlapping
-                           <> Arr.drop (nOtherDrop + Arr.length overlapping) otherVs
-        where nHeadSolo = max 0 $ headEnd - otherStart
-              nOtherDrop = max 0 $ otherStart - headStart -- Should normally be 0
-              overlapping = Arr.zipWith (+) (Arr.drop nHeadSolo headVs)
-                                            (Arr.drop nOtherDrop otherVs)
+  | null blocks       = QRHomogenSampled (1,1) $ Arr.fromList [0,0,0]
+  | length blocks==1  = headBlock
+  | otherwise         = QRHomogenSampled (headStart, headStart+ℓRel) result
+ where headBlock@(QRHomogenSampled (headStart, _) _) = Arr.head blocks
+       lastBlock@(QRHomogenSampled (lastStart, lastEnd) lastVs) = Arr.last blocks
+       lastOverhang = Arr.length lastVs - lastEnd
+       blockLenAccum a (QRHomogenSampled (s,e) _) = a + e - s
+       ℓRel = Arr.foldl' blockLenAccum 0 blocks
+       ℓTot = headStart + ℓRel + lastOverhang
+       startPoss = Arr.scanl' blockLenAccum headStart blocks
+       result = Arr.create $ do
+          res <- MArr.replicate ℓTot 0
+          Arr.forM_ (Arr.zip startPoss blocks) $ \(i₀, QRHomogenSampled (s,e) vs)
+            -> Arr.imapM_ (\j v -> MArr.modify res (+v) (i₀+j-s)) vs
+          return res
 
 qrHomogenSampledInRange :: UArr.Storable v => QRHomogenSampled v -> UArr.Vector v
 qrHomogenSampledInRange (QRHomogenSampled (start,end) vs)

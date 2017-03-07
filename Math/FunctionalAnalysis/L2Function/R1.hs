@@ -100,11 +100,13 @@ instance (RealFrac v, UArr.Storable v) => DynamicDimension (HomogenSampled v) wh
 subdivideHomogenSampled :: Fractional v 
               => Int -> HomogenSampled v -> BArr.Vector (HomogenSampled v)
 subdivideHomogenSampled n (HomogenSampled (start,end) vs dvs)
-       = Arr.generate n (\j -> let rStart = start + fromIntegral j * lr
-                                   rEnd = rStart + lr
+       = Arr.generate n (\j -> let rStart = splitpoints ! j
+                                   rEnd = splitpoints ! (j+1)
                                in HomogenSampled (rStart,rEnd) vs dvs )
- where l = end - start
-       lr = l / fromIntegral n
+ where ℓ = end - start
+       ℓr = ℓ / fromIntegral n
+       splitpoints = BArr.generate n (\j -> start + fromIntegral j * ℓr)
+                      `Arr.snoc` end
 
 
 -- | 0 corresponds to the first nonzero entry of a 'HomogenSampled', 1 to the last.

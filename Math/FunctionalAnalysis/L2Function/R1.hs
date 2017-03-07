@@ -33,7 +33,7 @@ import Control.Arrow
 import Data.Monoid ((<>))
 import Data.Complex
 
-import Data.Foldable (fold)
+import Data.Foldable (fold, foldr1, null)
 import Data.Default
 
 nSubDivs :: Int
@@ -89,6 +89,33 @@ homogenSampledInformation :: (RealFrac v, UArr.Storable v) => HomogenSampled v -
 homogenSampledInformation (HomogenSampled (start,end) vs _) = ceiling $ l * ν
  where ν = fromIntegral $ Arr.length vs - 2
        l = end - start
+
+
+data QRHomogenSampled v = QRHomogenSampled {
+       _qrHomogenSampledRange :: (Int,Int)
+     , _qrHomogenSampledVs :: UArr.Vector v
+     }
+
+concatHomogenSampled :: (Foldable l, Fractional v, UArr.Storable v)
+             => l (QRHomogenSampled v) -> QRHomogenSampled v
+concatHomogenSampled blocks
+  | null blocks  = QRHomogenSampled (1,1) $ Arr.fromList [0,0,0]
+  | otherwise    = foldr1 consHS blocks
+ where consHS (QRHomogenSampled (headStart,headEnd) headVs)
+              (QRHomogenSampled (otherStart,otherEnd) otherVs)
+         = QRHomogenSampled (headStart, otherEnd)
+                   $ Arr.take nHeadSolo headVs
+                           <> overlapping
+                           <> Arr.drop (nOtherDrop + Arr.length overlapping) otherVs
+        where nHeadSolo = max 0 $ headEnd - otherStart
+              nOtherDrop = max 0 $ otherStart - headStart -- Should normally be 0
+              overlapping = Arr.zipWith (+) (Arr.drop nHeadSolo headVs)
+                                            (Arr.drop nOtherDrop otherVs)
+
+qrHomogenSampledInRange :: UArr.Storable v => QRHomogenSampled v -> UArr.Vector v
+qrHomogenSampledInRange (QRHomogenSampled (start,end) vs)
+       = Arr.slice start (end-start) vs
+
 
 class DynamicDimension a where
   dynDimension :: a -> Int
@@ -232,10 +259,11 @@ simpleIIRHighpass ω ys = Arr.zipWith (-) ys $ simpleIIRLowpass ω ys
 
 toUniformSampledLike :: UABSample c
            => SigSampleConfig
-            -> HomogenSampled Double -> UnitL2 c Double -> UArr.Vector Double
+            -> HomogenSampled Double -> UnitL2 c Double -> QRHomogenSampled Double
 toUniformSampledLike cfg@SigSampleConfig{_maxFFTSize=maxFFT}
                      range@(HomogenSampled (start,end) vs _)
-                        (UnitL2 μLr _ quantisedLr _ subchunks) = result
+                        (UnitL2 μLr _ quantisedLr _ subchunks)
+                            = QRHomogenSampled (1, Arr.length result - 1) result
  where -- see
        -- https://raw.githubusercontent.com/leftaroundabout/sobolev-spaces/master/derivation/sampling-alignment.svg
        nRef = Arr.length vs - 2
@@ -250,21 +278,21 @@ toUniformSampledLike cfg@SigSampleConfig{_maxFFTSize=maxFFT}
        n = iEnd - nBefore
        backTransformed = fourierTrafo
                          $ Arr.map ((*realToFrac μLr) . fromIntegralℂ) quantisedLr
-                          Arr.++ Arr.replicate (min maxFFT (n`div`4)
+                          <> Arr.replicate (min maxFFT (n`div`4)
                                                    - Arr.length quantisedLr) 0
-       HomogenSampled _ resultLr' _ = resampleHomogen (t₀,tEnd) n backTransformed
+       HomogenSampled _ resultLr _ = resampleHomogen (t₀,tEnd) n backTransformed
        result, resultLr, subResult :: UArr.Vector Double
-       resultLr = Arr.slice 1 n resultLr'
-       result = Arr.zipWith (+) resultLr (subResult
-                             <> Arr.replicate (Arr.length resultLr
-                                                    - Arr.length subResult) 0)
-       subResult = fold $ Arr.zipWith (toUniformSampledLike cfg)
+       result = Arr.zipWith (+) resultLr
+                  (subResult <> Arr.replicate (n + 2 - Arr.length subResult) 0)
+       QRHomogenSampled (1,_) subResult
+           = concatHomogenSampled $ Arr.zipWith (toUniformSampledLike cfg)
                      (subdivideHomogenSampled nSubDivs range) subchunks
 
 toUniformSampled :: UABSample c => Int -> UnitL2 c Double -> UArr.Vector Double
-toUniformSampled n = toUniformSampledLike
-                      def {_maxFFTSize=hardMaxFFTsize}
-                     . unitHomogenSampled $ UArr.replicate n 0
+toUniformSampled n = qrHomogenSampledInRange
+                   . (toUniformSampledLike
+                       def{_maxFFTSize=hardMaxFFTsize}
+                      . unitHomogenSampled $ UArr.replicate n 0)
 
 fromUniformSampled :: ∀ c . UABSample c
         => SigSampleConfig
@@ -282,9 +310,10 @@ residualLayers cfg@(SigSampleConfig _ _ _ lrBandwidth _) allYs modChunks
        = lowpassed : residualLayers
                         cfg{_longrangeBandwidth=lrBandwidth*fromIntegral nSubDivs}
                         topResidual subchunks
- where longrange = fold $ Arr.zipWith (toUniformSampledLike cfg)
-              (subdivideHomogenSampled (Arr.length modChunks) lowpassed)
-              (onlyLongrange <$> modChunks)
+ where longrange = qrHomogenSampledInRange . concatHomogenSampled
+                     $ Arr.zipWith (toUniformSampledLike cfg)
+                              (subdivideHomogenSampled (Arr.length modChunks) lowpassed)
+                              (onlyLongrange <$> modChunks)
        lowpassed = unitHomogenSampled (simpleIIRLowpass lrBandwidth allYs)
        topResidual = Arr.zipWith (-) allYs longrange
        subchunks = modChunks >>= unitL2Subdivisions
